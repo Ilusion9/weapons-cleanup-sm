@@ -1,7 +1,6 @@
 #include <sourcemod>
 #include <sdkhooks>
 #include <sdktools>
-#include <cstrike>
 
 #pragma newdecls required
 
@@ -20,7 +19,7 @@ ConVar g_Cvar_MaxWeapons;
 public void OnPluginStart()
 {
 	g_Map_WeaponDropTime = new StringMap();
-	g_Cvar_MaxWeapons = CreateConVar("sm_weapon_max_before_cleanup", "32", "Maintain the specified dropped weapons in the world", FCVAR_NONE);
+	g_Cvar_MaxWeapons = CreateConVar("sm_weapon_max_before_cleanup", "32", "Maintain the specified dropped weapons in the world.", FCVAR_NONE);
 }
 
 public void OnMapStart()
@@ -28,17 +27,17 @@ public void OnMapStart()
 	g_Map_WeaponDropTime.Clear();
 }
 
+public void OnClientPutInServer(int client)
+{
+	SDKHook(client, SDKHook_WeaponDropPost, SDK_WeaponDropPost);
+}
+
 public void OnEntityCreated(int entity, const char[] classname)
 {
 	if (StrContains(classname, "weapon_", false) != -1)
 	{
-		SDKHook(entity, SDKHook_SpawnPost, SDK_OnWeaponSpawnPost);
+		SDKHook(entity, SDKHook_SpawnPost, SDK_WeaponSpawnPost);
 	}
-}
-
-public void SDK_OnWeaponSpawnPost(int entity)
-{
-	RequestFrame(RemoveWeaponsFromWorld, EntIndexToEntRef(entity));
 }
 
 public void OnEntityDestroyed(int entity)
@@ -48,13 +47,20 @@ public void OnEntityDestroyed(int entity)
 	g_Map_WeaponDropTime.Remove(entRef);
 }
 
-public Action CS_OnCSWeaponDrop(int client, int weaponIndex)
+public void SDK_WeaponSpawnPost(int entity)
 {
+	RequestFrame(RemoveWeaponsFromWorld, EntIndexToEntRef(entity));
+}
+
+public void SDK_WeaponDropPost(int client, int weapon)
+{
+	int weaponRef = EntIndexToEntRef(weapon);
+	
 	char entRef[64];
-	IntToString(EntIndexToEntRef(weaponIndex), entRef, sizeof(entRef));
+	IntToString(weaponRef, entRef, sizeof(entRef));
 	
 	g_Map_WeaponDropTime.SetValue(entRef, GetGameTime());
-	RequestFrame(RemoveWeaponsFromWorld, EntIndexToEntRef(weaponIndex));
+	RequestFrame(RemoveWeaponsFromWorld, weaponRef);
 }
 
 public void RemoveWeaponsFromWorld(any data)
