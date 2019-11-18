@@ -23,13 +23,13 @@ public void OnPluginStart()
 
 public void OnEntityCreated(int entity, const char[] classname)
 {
-	/* Check if this entity is a weapon */
+	/* Check if this entity is not a weapon */
 	if (strncmp(classname, "weapon_", 7, true) != 0)
 	{
 		return;
 	}
 	
-	/* Hook this entity spawn event */
+	/* Hook this weapon spawn event */
 	SDKHook(entity, SDKHook_SpawnPost, Event_WeaponSpawn);
 }
 
