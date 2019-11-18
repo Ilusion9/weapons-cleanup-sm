@@ -1,4 +1,4 @@
-#include <sourcemod>
+d>
 #include <sdkhooks>
 #include <sdktools>
 
@@ -13,99 +13,104 @@ public Plugin myinfo =
 	url = "https://github.com/Ilusion9/"
 };
 
-StringMap g_Map_WeaponDropTime;
 ConVar g_Cvar_MaxWeapons;
+float g_WeaponDropTime[2049]; // IntMaps are not available ...
 
 public void OnPluginStart()
 {
-	g_Map_WeaponDropTime = new StringMap();
-	g_Cvar_MaxWeapons = CreateConVar("sm_weapon_max_before_cleanup", "32", "Maintain the specified dropped weapons in the world.", FCVAR_NONE);
-}
-
-public void OnMapStart()
-{
-	g_Map_WeaponDropTime.Clear();
-}
-
-public void OnClientPutInServer(int client)
-{
-	SDKHook(client, SDKHook_WeaponDropPost, SDK_WeaponDropPost);
+	g_Cvar_MaxWeapons = CreateConVar("sm_weapon_max_before_cleanup", "24", "Maintain the specified dropped weapons in the world.", FCVAR_NONE);
 }
 
 public void OnEntityCreated(int entity, const char[] classname)
 {
-	if (StrContains(classname, "weapon_", false) != -1)
+	/* Check if this entity is a weapon */
+	if (strncmp(classname, "weapon_", 7, true) != 0)
 	{
-		SDKHook(entity, SDKHook_SpawnPost, SDK_WeaponSpawnPost);
+		return;
 	}
-}
-
-public void OnEntityDestroyed(int entity)
-{
-	char entRef[64];
-	IntToString(EntIndexToEntRef(entity), entRef, sizeof(entRef));
-	g_Map_WeaponDropTime.Remove(entRef);
-}
-
-public void SDK_WeaponSpawnPost(int entity)
-{
-	RequestFrame(RemoveWeaponsFromWorld, EntIndexToEntRef(entity));
-}
-
-public void SDK_WeaponDropPost(int client, int weapon)
-{
-	int weaponRef = EntIndexToEntRef(weapon);
 	
-	char entRef[64];
-	IntToString(weaponRef, entRef, sizeof(entRef));
-	
-	g_Map_WeaponDropTime.SetValue(entRef, GetGameTime());
-	RequestFrame(RemoveWeaponsFromWorld, weaponRef);
+	/* Hook this entity spawn event */
+	SDKHook(entity, SDKHook_SpawnPost, Event_WeaponSpawn);
 }
 
-public void RemoveWeaponsFromWorld(any data)
+public void OnClientPutInServer(int client)
+{
+	/* Hook the drop weapon event */
+	SDKHook(client, SDKHook_WeaponDropPost, Event_WeaponDrop);
+}
+
+public void Event_WeaponSpawn(int weapon)
+{
+	g_WeaponDropTime[weapon] = 0.0;
+	
+	/* Check if there are too many dropped weapons in the world */
+	RemoveWeaponsFromWorld(weapon);
+}
+
+public void Event_WeaponDrop(int client, int weapon)
+{
+	/* Set the drop time for this weapon */
+	g_WeaponDropTime[weapon] = GetGameTime();
+	
+	/* Check if there are too many dropped weapons in the world */
+	RemoveWeaponsFromWorld(weapon);
+}
+
+public void RemoveWeaponsFromWorld(int currentWeapon)
 {
 	if (g_Cvar_MaxWeapons.IntValue < 1)
 	{
 		return;
 	}
 	
-	int ent = -1;
-	int skipEntRef = view_as<int>(data);
+	int ent = -1, bomb = -1;
 	ArrayList listWeapons = new ArrayList();
+	
+	/* Keep at least one c4 on the ground */
+	while ((bomb = FindEntityByClassname(bomb, "weapon_c4")) != -1)
+	{
+		/* If someone is equipped with a c4, count all dropped c4s for removal */
+		if (GetEntPropEnt(bomb, Prop_Data, "m_hOwnerEntity") != -1)
+		{
+			bomb = -1;
+			break;
+		}
+	}
 	
 	while ((ent = FindEntityByClassname(ent, "weapon_*")) != -1)
 	{
-		int entRef = EntIndexToEntRef(ent);
-		
 		/* Skip the current weapon spawned or dropped */
-		if (entRef == skipEntRef)
+		/* Skip a c4 dropped on the ground */ 
+		if (ent == currentWeapon || ent == bomb)
 		{
 			continue;
 		}
 		
-		/* Check if weapon can be picked up */
+		/* Check if this weapon can be picked up */
 		if (!GetEntProp(ent, Prop_Data, "m_bCanBePickedUp"))
 		{
 			continue;
 		}
 		
-		/* Check if weapon it's dropped on the ground */
+		/* Check if this weapon is dropped on the ground */
 		if (GetEntPropEnt(ent, Prop_Data, "m_hOwnerEntity") != -1)
 		{
 			continue;
 		}
 		
-		listWeapons.Push(entRef);
+		listWeapons.Push(ent);
 	}
 	
-	/* Sort weapons by drop time */
-	listWeapons.SortCustom(sortWeapons);
-	
-	/* Remove the weapons */
-	for (int i = g_Cvar_MaxWeapons.IntValue - 1; i < listWeapons.Length; i++)
+	/* Check if there are more dropped weapons than the specified limit */
+	if (listWeapons.Length > g_Cvar_MaxWeapons.IntValue - 1)
 	{
-		AcceptEntityInput(EntRefToEntIndex(listWeapons.Get(i)), "Kill");
+		/* Sort the dropped weapons by drop time */
+		listWeapons.SortCustom(sortWeapons);
+		
+		for (int i = g_Cvar_MaxWeapons.IntValue - 1; i < listWeapons.Length; i++)
+		{
+			AcceptEntityInput(listWeapons.Get(i), "Kill");
+		}
 	}
 	
 	delete listWeapons;
@@ -116,22 +121,12 @@ public int sortWeapons(int index1, int index2, Handle array, Handle hndl)
 	int weapon1 = view_as<ArrayList>(array).Get(index1);
 	int weapon2 = view_as<ArrayList>(array).Get(index2);
 	
-	char entRef1[64], entRef2[64];
-	IntToString(weapon1, entRef1, sizeof(entRef2));
-	IntToString(weapon2, entRef1, sizeof(entRef2));
-	
-	float dropTime1, dropTime2;
-	float currentTime = GetGameTime();
-	
-	g_Map_WeaponDropTime.GetValue(entRef1, dropTime1);
-	g_Map_WeaponDropTime.GetValue(entRef2, dropTime2);
-	
-	if (currentTime - dropTime1 < currentTime - dropTime2)
+	if (g_WeaponDropTime[weapon1] < g_WeaponDropTime[weapon2])
 	{
 		return 1;
 	}
 	
-	if (currentTime - dropTime1 > currentTime - dropTime2)
+	if (g_WeaponDropTime[weapon1] > g_WeaponDropTime[weapon2])
 	{
 		return -1;
 	}
