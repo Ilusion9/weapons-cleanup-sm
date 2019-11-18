@@ -1,4 +1,4 @@
-d>
+#include <sourcemod>
 #include <sdkhooks>
 #include <sdktools>
 
