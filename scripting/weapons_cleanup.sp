@@ -29,13 +29,13 @@ public void OnEntityCreated(int entity, const char[] classname)
 		return;
 	}
 	
-	/* Hook this entity spawn event */
+	/* Hook this entity's spawn event */
 	SDKHook(entity, SDKHook_SpawnPost, Event_WeaponSpawn);
 }
 
 public void OnClientPutInServer(int client)
 {
-	/* Hook the weapon drop event */
+	/* Hook this client's drop weapon event */
 	SDKHook(client, SDKHook_WeaponDropPost, Event_WeaponDrop);
 }
 
@@ -71,7 +71,7 @@ public void RemoveWeaponsFromWorld(int currentWeapon)
 		/* Check if someone is equipped with a c4 */
 		if (GetEntityOwner(c4) != -1)
 		{
-			c4 = -1; // someone is equipped with c4, count all dropped c4s for removal
+			c4 = -1; // someone is equipped with a c4, count all dropped c4s for removal
 			break;
 		}
 	}
@@ -100,7 +100,7 @@ public void RemoveWeaponsFromWorld(int currentWeapon)
 		listWeapons.Push(ent);
 	}
 	
-	/* Check of there are two many dropped weapons in the world */
+	/* Check of there are too many dropped weapons in the world */
 	if (listWeapons.Length > g_Cvar_MaxWeapons.IntValue - 1)
 	{
 		/* Sort all found weapons by drop time */
