@@ -41,7 +41,7 @@ public void OnClientPutInServer(int client)
 
 public void Event_WeaponSpawn(int weapon)
 {
-	g_WeaponDropTime[weapon] = 0.0;
+	g_WeaponDropTime[weapon] = 0.0; // this weapon will have the oldest drop time - 0 seconds after the map has started
 	
 	/* Maintain the specified dropped weapons in the world */
 	RemoveWeaponsFromWorld(weapon);
@@ -49,7 +49,7 @@ public void Event_WeaponSpawn(int weapon)
 
 public void Event_WeaponDrop(int client, int weapon)
 {
-	g_WeaponDropTime[weapon] = GetGameTime();
+	g_WeaponDropTime[weapon] = GetGameTime(); // x seconds after the map has started
 	
 	/* Maintain the specified dropped weapons in the world */	
 	RemoveWeaponsFromWorld(weapon);
@@ -91,7 +91,7 @@ public void RemoveWeaponsFromWorld(int currentWeapon)
 			continue;
 		}
 		
-		/* Check if this entity is dropped */
+		/* Check if this entity is om the ground */
 		if (GetEntityOwner(ent) != -1)
 		{
 			continue;
