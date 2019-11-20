@@ -14,7 +14,7 @@ public Plugin myinfo =
 };
 
 ConVar g_Cvar_MaxWeapons;
-float g_WeaponDropTime[2049]; // IntMaps are not available ...
+float g_WeaponDropTime[2049];
 
 public void OnPluginStart()
 {
@@ -23,19 +23,19 @@ public void OnPluginStart()
 
 public void OnEntityCreated(int entity, const char[] classname)
 {
-	/* Check if this entity is not a weapon */
+	/* Check if this entity is a weapon */
 	if (strncmp(classname, "weapon_", 7, true) != 0)
 	{
 		return;
 	}
 	
-	/* Hook this weapon spawn event */
+	/* Hook this entity spawn event */
 	SDKHook(entity, SDKHook_SpawnPost, Event_WeaponSpawn);
 }
 
 public void OnClientPutInServer(int client)
 {
-	/* Hook the drop weapon event */
+	/* Hook the weapon drop event */
 	SDKHook(client, SDKHook_WeaponDropPost, Event_WeaponDrop);
 }
 
@@ -43,16 +43,15 @@ public void Event_WeaponSpawn(int weapon)
 {
 	g_WeaponDropTime[weapon] = 0.0;
 	
-	/* Check if there are too many dropped weapons in the world */
+	/* Maintain the specified dropped weapons in the world */
 	RemoveWeaponsFromWorld(weapon);
 }
 
 public void Event_WeaponDrop(int client, int weapon)
 {
-	/* Set the drop time for this weapon */
 	g_WeaponDropTime[weapon] = GetGameTime();
 	
-	/* Check if there are too many dropped weapons in the world */
+	/* Maintain the specified dropped weapons in the world */	
 	RemoveWeaponsFromWorld(weapon);
 }
 
@@ -63,37 +62,37 @@ public void RemoveWeaponsFromWorld(int currentWeapon)
 		return;
 	}
 	
-	int ent = -1, bomb = -1;
+	int ent = -1, c4 = -1;
 	ArrayList listWeapons = new ArrayList();
 	
-	/* Keep at least one c4 on the ground */
-	while ((bomb = FindEntityByClassname(bomb, "weapon_c4")) != -1)
+	/* Keep at least one c4 dropped in the world if no player has one */
+	while ((c4 = FindEntityByClassname(c4, "weapon_c4")) != -1)
 	{
-		/* If someone is equipped with a c4, count all dropped c4s for removal */
-		if (GetEntPropEnt(bomb, Prop_Data, "m_hOwnerEntity") != -1)
+		/* Check if someone is equipped with a c4 */
+		if (GetEntityOwner(c4) != -1)
 		{
-			bomb = -1;
+			c4 = -1; // someone is equipped with c4, count all dropped c4s for removal
 			break;
 		}
 	}
-	
+		
+	/* Get all dropped weapons */
 	while ((ent = FindEntityByClassname(ent, "weapon_*")) != -1)
 	{
-		/* Skip the current weapon spawned or dropped */
-		/* Skip a c4 dropped on the ground */ 
-		if (ent == currentWeapon || ent == bomb)
+		/* Skip the current weapon spawned or dropped and skip that c4 dropped */
+		if (ent == currentWeapon || ent == c4)
 		{
 			continue;
 		}
 		
-		/* Check if this weapon can be picked up */
-		if (!GetEntProp(ent, Prop_Data, "m_bCanBePickedUp"))
+		/* Check if this entity can be picked up */
+		if (!CanBePickedUp(ent))
 		{
 			continue;
 		}
 		
-		/* Check if this weapon is dropped on the ground */
-		if (GetEntPropEnt(ent, Prop_Data, "m_hOwnerEntity") != -1)
+		/* Check if this entity is dropped */
+		if (GetEntityOwner(ent) != -1)
 		{
 			continue;
 		}
@@ -101,12 +100,13 @@ public void RemoveWeaponsFromWorld(int currentWeapon)
 		listWeapons.Push(ent);
 	}
 	
-	/* Check if there are more dropped weapons than the specified limit */
+	/* Check of there are two many dropped weapons in the world */
 	if (listWeapons.Length > g_Cvar_MaxWeapons.IntValue - 1)
 	{
-		/* Sort the dropped weapons by drop time */
+		/* Sort all found weapons by drop time */
 		listWeapons.SortCustom(sortWeapons);
 		
+		/* Remove the oldest dropped weapons from the world */
 		for (int i = g_Cvar_MaxWeapons.IntValue - 1; i < listWeapons.Length; i++)
 		{
 			AcceptEntityInput(listWeapons.Get(i), "Kill");
@@ -118,9 +118,11 @@ public void RemoveWeaponsFromWorld(int currentWeapon)
 
 public int sortWeapons(int index1, int index2, Handle array, Handle hndl)
 {
+	/* Get the two comparable weapons from the list */
 	int weapon1 = view_as<ArrayList>(array).Get(index1);
 	int weapon2 = view_as<ArrayList>(array).Get(index2);
 	
+	/* Compare these weapons by drop time */
 	if (g_WeaponDropTime[weapon1] < g_WeaponDropTime[weapon2])
 	{
 		return 1;
@@ -132,4 +134,14 @@ public int sortWeapons(int index1, int index2, Handle array, Handle hndl)
 	}
 	
 	return 0;
+}
+
+bool CanBePickedUp(int entity)
+{
+	return view_as<bool>(GetEntProp(entity, Prop_Data, "m_bCanBePickedUp"));
+}
+
+int GetEntityOwner(int entity)
+{
+	return GetEntPropEnt(entity, Prop_Data, "m_hOwnerEntity");
 }
