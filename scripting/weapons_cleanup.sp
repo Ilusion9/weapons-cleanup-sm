@@ -19,6 +19,7 @@ float g_WeaponDropTime[2049];
 public void OnPluginStart()
 {
 	g_Cvar_MaxWeapons = CreateConVar("sm_weapon_max_before_cleanup", "24", "Maintain the specified dropped weapons in the world.", FCVAR_NONE);
+	AutoExecConfig(true, "weapons_cleanup");
 }
 
 public void OnEntityCreated(int entity, const char[] classname)
@@ -31,21 +32,19 @@ public void OnEntityCreated(int entity, const char[] classname)
 	SDKHook(entity, SDKHook_SpawnPost, Event_WeaponSpawn);
 }
 
-public void OnClientPutInServer(int client)
+public void Event_WeaponSpawn(int entity)
 {
-	SDKHook(client, SDKHook_WeaponDropPost, Event_WeaponDrop);
+	g_WeaponDropTime[entity] = 0.0;
+	RemoveWeaponsFromWorld(entity);
 }
 
-public void Event_WeaponSpawn(int weapon)
+public Action CS_OnCSWeaponDrop(int client, int weaponIndex)
 {
-	g_WeaponDropTime[weapon] = 0.0;
-	RemoveWeaponsFromWorld(weapon);
-}
-
-public void Event_WeaponDrop(int client, int weapon)
-{
-	g_WeaponDropTime[weapon] = GetGameTime();
-	RemoveWeaponsFromWorld(weapon);
+	if (weaponIndex != -1)
+	{
+		g_WeaponDropTime[weaponIndex] = GetGameTime();
+		RemoveWeaponsFromWorld(weaponIndex);
+	}
 }
 
 public void RemoveWeaponsFromWorld(int currentWeapon)
@@ -58,7 +57,7 @@ public void RemoveWeaponsFromWorld(int currentWeapon)
 	int ent = -1, c4 = -1;
 	ArrayList listWeapons = new ArrayList();
 	
-	/* Keep at least one c4 dropped in the world if no player has one */
+	/* Keep at least one c4 dropped in the world if no player owns one */
 	while ((c4 = FindEntityByClassname(c4, "weapon_c4")) != -1)
 	{
 		if (GetEntityOwner(c4) != -1)
@@ -67,7 +66,7 @@ public void RemoveWeaponsFromWorld(int currentWeapon)
 			break;
 		}
 	}
-		
+	
 	while ((ent = FindEntityByClassname(ent, "weapon_*")) != -1)
 	{
 		if (ent == currentWeapon || ent == c4)
@@ -75,7 +74,7 @@ public void RemoveWeaponsFromWorld(int currentWeapon)
 			continue;
 		}
 		
-		if (!CanBePickedUp(ent))
+		if (!WeaponCanBePickedUp(ent))
 		{
 			continue;
 		}
@@ -91,7 +90,6 @@ public void RemoveWeaponsFromWorld(int currentWeapon)
 	if (listWeapons.Length > g_Cvar_MaxWeapons.IntValue - 1)
 	{
 		listWeapons.SortCustom(sortWeapons);
-		
 		for (int i = g_Cvar_MaxWeapons.IntValue - 1; i < listWeapons.Length; i++)
 		{
 			AcceptEntityInput(listWeapons.Get(i), "Kill");
@@ -119,7 +117,7 @@ public int sortWeapons(int index1, int index2, Handle array, Handle hndl)
 	return 0;
 }
 
-bool CanBePickedUp(int entity)
+bool WeaponCanBePickedUp(int entity)
 {
 	return view_as<bool>(GetEntProp(entity, Prop_Data, "m_bCanBePickedUp"));
 }
