@@ -14,11 +14,15 @@ public Plugin myinfo =
 };
 
 ConVar g_Cvar_MaxWeapons;
+ConVar g_Cvar_MaxC4;
+
 float g_WeaponDropTime[2049];
 
 public void OnPluginStart()
 {
 	g_Cvar_MaxWeapons = CreateConVar("sm_weapon_max_before_cleanup", "24", "Maintain the specified dropped weapons in the world.", FCVAR_NONE);
+	g_Cvar_MaxC4 = CreateConVar("sm_c4_max_before_cleanup", "5", "Maintain the specified dropped c4s in the world.", FCVAR_NONE);
+
 	AutoExecConfig(true, "weapons_cleanup");
 }
 
@@ -54,32 +58,41 @@ public void RemoveWeaponsFromWorld(int currentWeapon)
 		return;
 	}
 	
-	int ent = -1, c4 = -1;
+	int ent = -1;
 	ArrayList listWeapons = new ArrayList();
 	
-	/* Keep at least one c4 dropped in the world if no player owns one */
-	while ((c4 = FindEntityByClassname(c4, "weapon_c4")) != -1)
+	while ((ent = FindEntityByClassname(ent, "weapon_c4")) != -1)
 	{
-		if (GetEntityOwner(c4) != -1)
+		if (ent == currentWeapon || !CanBePickedUp(ent) || GetEntityOwner(ent) != -1)
 		{
-			c4 = -1;
-			break;
+			continue;
+		}
+		
+		listWeapons.Push(ent);
+	}
+	
+	if (listWeapons.Length > g_Cvar_MaxC4.IntValue - 1)
+	{
+		listWeapons.SortCustom(sortWeapons);
+		for (int i = g_Cvar_MaxC4.IntValue - 1; i < listWeapons.Length; i++)
+		{
+			AcceptEntityInput(listWeapons.Get(i), "Kill");
 		}
 	}
 	
+	ent = -1;
+	listWeapons.Clear();
+	char classname[65];
+	
 	while ((ent = FindEntityByClassname(ent, "weapon_*")) != -1)
 	{
-		if (ent == currentWeapon || ent == c4)
+		if (ent == currentWeapon || !CanBePickedUp(ent) || GetEntityOwner(ent) != -1)
 		{
 			continue;
 		}
 		
-		if (!WeaponCanBePickedUp(ent))
-		{
-			continue;
-		}
-		
-		if (GetEntityOwner(ent) != -1)
+		GetEntityClassname(ent, classname, sizeof(classname));
+		if (StrEqual(classname, "weapon_c4", true))
 		{
 			continue;
 		}
@@ -117,7 +130,7 @@ public int sortWeapons(int index1, int index2, Handle array, Handle hndl)
 	return 0;
 }
 
-bool WeaponCanBePickedUp(int entity)
+bool CanBePickedUp(int entity)
 {
 	return view_as<bool>(GetEntProp(entity, Prop_Data, "m_bCanBePickedUp"));
 }
