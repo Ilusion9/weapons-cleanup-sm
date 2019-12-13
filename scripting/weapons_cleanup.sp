@@ -33,10 +33,10 @@ public void OnEntityCreated(int entity, const char[] classname)
 		return;
 	}
 	
-	SDKHook(entity, SDKHook_SpawnPost, Event_WeaponSpawn);
+	SDKHook(entity, SDKHook_SpawnPost, SDK_OnWeaponSpawn_Post);
 }
 
-public void Event_WeaponSpawn(int entity)
+public void SDK_OnWeaponSpawn_Post(int entity)
 {
 	g_WeaponDropTime[entity] = 0.0;
 	RemoveWeaponsFromWorld(entity);
@@ -61,6 +61,7 @@ public void RemoveWeaponsFromWorld(int currentWeapon)
 	int ent = -1;
 	ArrayList listWeapons = new ArrayList();
 	
+	// Maintain the specified dropped c4s in the world
 	while ((ent = FindEntityByClassname(ent, "weapon_c4")) != -1)
 	{
 		if (ent == currentWeapon || !CanBePickedUp(ent) || GetEntityOwner(ent) != -1)
@@ -82,8 +83,8 @@ public void RemoveWeaponsFromWorld(int currentWeapon)
 	
 	ent = -1;
 	listWeapons.Clear();
-	char classname[65];
 	
+	// Maintain the specified dropped weapons in the world
 	while ((ent = FindEntityByClassname(ent, "weapon_*")) != -1)
 	{
 		if (ent == currentWeapon || !CanBePickedUp(ent) || GetEntityOwner(ent) != -1)
@@ -91,7 +92,9 @@ public void RemoveWeaponsFromWorld(int currentWeapon)
 			continue;
 		}
 		
+		char classname[65];
 		GetEntityClassname(ent, classname, sizeof(classname));
+		
 		if (StrEqual(classname, "weapon_c4", true))
 		{
 			continue;
