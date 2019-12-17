@@ -8,5 +8,5 @@ https://forums.alliedmods.net/showthread.php?t=319675
 # Convars
 ```
 sm_weapon_max_before_cleanup 24 // Maintain the specified dropped weapons in the world
-sm_c4_max_before_cleanup 2 // Maintain the specified dropped c4s in the world.
+sm_c4_max_before_cleanup 3 // Maintain the specified dropped c4s in the world.
 ```
