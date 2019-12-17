@@ -21,7 +21,7 @@ float g_WeaponDropTime[2049];
 public void OnPluginStart()
 {
 	g_Cvar_MaxWeapons = CreateConVar("sm_weapon_max_before_cleanup", "24", "Maintain the specified dropped weapons in the world.", FCVAR_NONE);
-	g_Cvar_MaxC4 = CreateConVar("sm_c4_max_before_cleanup", "2", "Maintain the specified dropped c4s in the world.", FCVAR_NONE);
+	g_Cvar_MaxC4 = CreateConVar("sm_c4_max_before_cleanup", "3", "Maintain the specified dropped c4s in the world.", FCVAR_NONE);
 
 	AutoExecConfig(true, "weapons_cleanup");
 }
@@ -33,10 +33,10 @@ public void OnEntityCreated(int entity, const char[] classname)
 		return;
 	}
 	
-	SDKHook(entity, SDKHook_SpawnPost, SDK_OnWeaponSpawn_Post);
+	SDKHook(entity, SDKHook_SpawnPost, SDK_OnEntitySpawn_Post);
 }
 
-public void SDK_OnWeaponSpawn_Post(int entity)
+public void SDK_OnEntitySpawn_Post(int entity)
 {
 	g_WeaponDropTime[entity] = 0.0;
 	RemoveWeaponsFromWorld(entity);
