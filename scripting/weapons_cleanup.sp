@@ -21,7 +21,7 @@ float g_WeaponDropTime[2049];
 public void OnPluginStart()
 {
 	g_Cvar_MaxWeapons = CreateConVar("sm_weapon_max_before_cleanup", "24", "Maintain the specified dropped weapons in the world.", FCVAR_NONE);
-	g_Cvar_MaxC4 = CreateConVar("sm_c4_max_before_cleanup", "5", "Maintain the specified dropped c4s in the world.", FCVAR_NONE);
+	g_Cvar_MaxC4 = CreateConVar("sm_c4_max_before_cleanup", "2", "Maintain the specified dropped c4s in the world.", FCVAR_NONE);
 
 	AutoExecConfig(true, "weapons_cleanup");
 }
