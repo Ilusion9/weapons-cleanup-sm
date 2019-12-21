@@ -92,7 +92,7 @@ public void RemoveWeaponsFromWorld(int currentWeapon)
 			continue;
 		}
 		
-		char classname[65];
+		char classname[128];
 		GetEntityClassname(ent, classname, sizeof(classname));
 		
 		if (StrEqual(classname, "weapon_c4", true))
