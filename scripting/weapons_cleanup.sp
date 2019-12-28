@@ -9,7 +9,7 @@ public Plugin myinfo =
 	name = "Weapons Cleanup",
 	author = "Ilusion9",
 	description = "Maintain the specified dropped weapons in the world",
-	version = "1.0",
+	version = "1.1",
 	url = "https://github.com/Ilusion9/"
 };
 
@@ -59,24 +59,26 @@ public void SDK_OnEntitySpawn_Post(int entity)
 	}
 }
 
-public Action CS_OnCSWeaponDrop(int client, int weaponIndex)
+public void OnClientPutInServer(int client)
 {
-	if (weaponIndex != -1)
+	SDKHook(client, SDKHook_WeaponDropPost, SDK_OnWeaponDrop_Post);
+}
+
+public void SDK_OnWeaponDrop_Post(int client, int weapon)
+{
+	g_WeaponInfo[weapon].mapPlaced = false;
+	g_WeaponInfo[weapon].dropTime = GetGameTime();
+	
+	char classname[128];
+	GetEntityClassname(weapon, classname, sizeof(classname));
+	
+	if (StrEqual(classname, "weapon_c4", true))
 	{
-		g_WeaponInfo[weaponIndex].mapPlaced = false;
-		g_WeaponInfo[weaponIndex].dropTime = GetGameTime();
-		
-		char classname[128];
-		GetEntityClassname(weaponIndex, classname, sizeof(classname));
-		
-		if (StrEqual(classname, "weapon_c4", true))
-		{
-			RemoveBombsFromWorld(weaponIndex);
-		}
-		else
-		{
-			RemoveWeaponsFromWorld(weaponIndex);
-		}
+		RemoveBombsFromWorld(weapon);
+	}
+	else
+	{
+		RemoveWeaponsFromWorld(weapon);
 	}
 }
 
