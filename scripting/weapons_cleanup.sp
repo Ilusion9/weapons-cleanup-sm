@@ -13,16 +13,21 @@ public Plugin myinfo =
 	url = "https://github.com/Ilusion9/"
 };
 
-ConVar g_Cvar_MaxWeapons;
-ConVar g_Cvar_MaxC4;
+enum struct WeaponInfo
+{
+	bool mapPlaced;
+	float dropTime;
+}
 
-float g_WeaponDropTime[2049];
+WeaponInfo g_WeaponInfo[2049];
+
+ConVar g_Cvar_MaxWeapons;
+ConVar g_Cvar_MaxBombs;
 
 public void OnPluginStart()
 {
-	g_Cvar_MaxWeapons = CreateConVar("sm_weapon_max_before_cleanup", "24", "Maintain the specified dropped weapons in the world.", FCVAR_NONE);
-	g_Cvar_MaxC4 = CreateConVar("sm_c4_max_before_cleanup", "3", "Maintain the specified dropped c4s in the world.", FCVAR_NONE);
-
+	g_Cvar_MaxWeapons = CreateConVar("sm_weapon_max_before_cleanup", "24", "Maintain the specified dropped weapons in the world. The c4 bombs will be ignored.", FCVAR_NONE);
+	g_Cvar_MaxBombs = CreateConVar("sm_c4_max_before_cleanup", "3", "Maintain the specified dropped c4 bombs in the world.", FCVAR_NONE);
 	AutoExecConfig(true, "weapons_cleanup");
 }
 
@@ -38,22 +43,46 @@ public void OnEntityCreated(int entity, const char[] classname)
 
 public void SDK_OnEntitySpawn_Post(int entity)
 {
-	g_WeaponDropTime[entity] = 0.0;
-	RemoveWeaponsFromWorld(entity);
+	g_WeaponInfo[entity].mapPlaced = true;
+	g_WeaponInfo[entity].dropTime = 0.0;
+	
+	char classname[128];
+	GetEntityClassname(entity, classname, sizeof(classname));
+	
+	if (StrEqual(classname, "weapon_c4", true))
+	{
+		RemoveBombsFromWorld(entity);
+	}
+	else
+	{
+		RemoveWeaponsFromWorld(entity);
+	}
 }
 
 public Action CS_OnCSWeaponDrop(int client, int weaponIndex)
 {
 	if (weaponIndex != -1)
 	{
-		g_WeaponDropTime[weaponIndex] = GetGameTime();
-		RemoveWeaponsFromWorld(weaponIndex);
+		g_WeaponInfo[weaponIndex].mapPlaced = false;
+		g_WeaponInfo[weaponIndex].dropTime = GetGameTime();
+		
+		char classname[128];
+		GetEntityClassname(weaponIndex, classname, sizeof(classname));
+		
+		if (StrEqual(classname, "weapon_c4", true))
+		{
+			RemoveBombsFromWorld(weaponIndex);
+		}
+		else
+		{
+			RemoveWeaponsFromWorld(weaponIndex);
+		}
 	}
 }
 
-public void RemoveWeaponsFromWorld(int currentWeapon)
+public void RemoveBombsFromWorld(int currentWeapon)
 {
-	if (g_Cvar_MaxWeapons.IntValue < 1)
+	if (g_Cvar_MaxBombs.IntValue == 0)
 	{
 		return;
 	}
@@ -64,7 +93,7 @@ public void RemoveWeaponsFromWorld(int currentWeapon)
 	// Maintain the specified dropped c4s in the world
 	while ((ent = FindEntityByClassname(ent, "weapon_c4")) != -1)
 	{
-		if (ent == currentWeapon || !CanBePickedUp(ent) || GetEntityOwner(ent) != -1)
+		if (ent == currentWeapon || GetEntityOwner(ent) != -1 || g_WeaponInfo[ent].mapPlaced)
 		{
 			continue;
 		}
@@ -72,22 +101,32 @@ public void RemoveWeaponsFromWorld(int currentWeapon)
 		listWeapons.Push(ent);
 	}
 	
-	if (listWeapons.Length > g_Cvar_MaxC4.IntValue - 1)
+	if (listWeapons.Length > g_Cvar_MaxBombs.IntValue - 1)
 	{
 		listWeapons.SortCustom(sortWeapons);
-		for (int i = g_Cvar_MaxC4.IntValue - 1; i < listWeapons.Length; i++)
+		for (int i = g_Cvar_MaxBombs.IntValue - 1; i < listWeapons.Length; i++)
 		{
 			AcceptEntityInput(listWeapons.Get(i), "Kill");
 		}
 	}
 	
-	ent = -1;
-	listWeapons.Clear();
+	delete listWeapons;
+}
+
+public void RemoveWeaponsFromWorld(int currentWeapon)
+{
+	if (g_Cvar_MaxWeapons.IntValue == 0)
+	{
+		return;
+	}
 	
+	int ent = -1;
+	ArrayList listWeapons = new ArrayList();
+
 	// Maintain the specified dropped weapons in the world
 	while ((ent = FindEntityByClassname(ent, "weapon_*")) != -1)
 	{
-		if (ent == currentWeapon || !CanBePickedUp(ent) || GetEntityOwner(ent) != -1)
+		if (ent == currentWeapon || GetEntityOwner(ent) != -1 || g_WeaponInfo[ent].mapPlaced)
 		{
 			continue;
 		}
@@ -120,22 +159,17 @@ public int sortWeapons(int index1, int index2, Handle array, Handle hndl)
 	int weapon1 = view_as<ArrayList>(array).Get(index1);
 	int weapon2 = view_as<ArrayList>(array).Get(index2);
 	
-	if (g_WeaponDropTime[weapon1] < g_WeaponDropTime[weapon2])
+	if (g_WeaponInfo[weapon1].dropTime < g_WeaponInfo[weapon2].dropTime)
 	{
 		return 1;
 	}
 	
-	if (g_WeaponDropTime[weapon1] > g_WeaponDropTime[weapon2])
+	if (g_WeaponInfo[weapon1].dropTime > g_WeaponInfo[weapon2].dropTime)
 	{
 		return -1;
 	}
 	
 	return 0;
-}
-
-bool CanBePickedUp(int entity)
-{
-	return view_as<bool>(GetEntProp(entity, Prop_Data, "m_bCanBePickedUp"));
 }
 
 int GetEntityOwner(int entity)
