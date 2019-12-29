@@ -22,12 +22,12 @@ enum struct WeaponInfo
 WeaponInfo g_WeaponInfo[2049];
 
 ConVar g_Cvar_MaxWeapons;
-ConVar g_Cvar_MaxBombs;
+ConVar g_Cvar_MaxC4;
 
 public void OnPluginStart()
 {
-	g_Cvar_MaxWeapons = CreateConVar("sm_weapon_max_before_cleanup", "24", "Maintain the specified dropped weapons in the world. The c4 bombs will be ignored.", FCVAR_NONE);
-	g_Cvar_MaxBombs = CreateConVar("sm_c4_max_before_cleanup", "3", "Maintain the specified dropped c4 bombs in the world.", FCVAR_NONE);
+	g_Cvar_MaxWeapons = CreateConVar("sm_weapon_max_before_cleanup", "24", "Maintain the specified dropped weapons in the world. The C4 will be ignored.", FCVAR_NONE, true, 0.0);
+	g_Cvar_MaxC4 = CreateConVar("sm_c4_max_before_cleanup", "3", "Maintain the specified dropped C4 in the world.", FCVAR_NONE, true, 0.0);
 	AutoExecConfig(true, "weapons_cleanup");
 }
 
@@ -51,11 +51,11 @@ public void SDK_OnEntitySpawn_Post(int entity)
 	
 	if (StrEqual(classname, "weapon_c4", true))
 	{
-		RemoveBombsFromWorld(entity);
+		CleanC4FromWorld(entity);
 	}
 	else
 	{
-		RemoveWeaponsFromWorld(entity);
+		CleanWeaponsFromWorld(entity);
 	}
 }
 
@@ -74,17 +74,17 @@ public void SDK_OnWeaponDrop_Post(int client, int weapon)
 	
 	if (StrEqual(classname, "weapon_c4", true))
 	{
-		RemoveBombsFromWorld(weapon);
+		CleanC4FromWorld(weapon);
 	}
 	else
 	{
-		RemoveWeaponsFromWorld(weapon);
+		CleanWeaponsFromWorld(weapon);
 	}
 }
 
-public void RemoveBombsFromWorld(int currentWeapon)
+public void CleanC4FromWorld(int currentWeapon)
 {
-	if (g_Cvar_MaxBombs.IntValue == 0)
+	if (g_Cvar_MaxC4.IntValue < 1)
 	{
 		return;
 	}
@@ -92,7 +92,7 @@ public void RemoveBombsFromWorld(int currentWeapon)
 	int ent = -1;
 	ArrayList listWeapons = new ArrayList();
 	
-	// Maintain the specified dropped c4s in the world
+	// Maintain the specified dropped C4 in the world
 	while ((ent = FindEntityByClassname(ent, "weapon_c4")) != -1)
 	{
 		if (ent == currentWeapon || GetEntityOwner(ent) != -1 || g_WeaponInfo[ent].mapPlaced)
@@ -103,10 +103,10 @@ public void RemoveBombsFromWorld(int currentWeapon)
 		listWeapons.Push(ent);
 	}
 	
-	if (listWeapons.Length > g_Cvar_MaxBombs.IntValue - 1)
+	if (listWeapons.Length > g_Cvar_MaxC4.IntValue - 1)
 	{
 		listWeapons.SortCustom(sortWeapons);
-		for (int i = g_Cvar_MaxBombs.IntValue - 1; i < listWeapons.Length; i++)
+		for (int i = g_Cvar_MaxC4.IntValue - 1; i < listWeapons.Length; i++)
 		{
 			AcceptEntityInput(listWeapons.Get(i), "Kill");
 		}
@@ -115,9 +115,9 @@ public void RemoveBombsFromWorld(int currentWeapon)
 	delete listWeapons;
 }
 
-public void RemoveWeaponsFromWorld(int currentWeapon)
+public void CleanWeaponsFromWorld(int currentWeapon)
 {
-	if (g_Cvar_MaxWeapons.IntValue == 0)
+	if (g_Cvar_MaxWeapons.IntValue < 1)
 	{
 		return;
 	}
