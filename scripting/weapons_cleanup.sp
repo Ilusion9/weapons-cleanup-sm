@@ -38,25 +38,25 @@ public void OnEntityCreated(int entity, const char[] classname)
 		return;
 	}
 	
-	SDKHook(entity, SDKHook_SpawnPost, SDK_OnEntitySpawn_Post);
+	SDKHook(entity, SDKHook_SpawnPost, SDK_OnWeaponSpawn_Post);
 }
 
-public void SDK_OnEntitySpawn_Post(int entity)
+public void SDK_OnWeaponSpawn_Post(int weapon)
 {
-	g_WeaponInfo[entity].mapPlaced = true;
-	g_WeaponInfo[entity].dropTime = 0.0;
+	g_WeaponInfo[weapon].mapPlaced = true;
+	g_WeaponInfo[weapon].dropTime = 0.0;
 	
 	char classname[128];
-	GetEntityClassname(entity, classname, sizeof(classname));
+	if (GetEntityClassname(weapon, classname, sizeof(classname)))
+	{
+		if (StrEqual(classname, "weapon_c4", true))
+		{
+			CleanC4FromWorld(weapon);
+			return;
+		}
+	}
 	
-	if (StrEqual(classname, "weapon_c4", true))
-	{
-		CleanC4FromWorld(entity);
-	}
-	else
-	{
-		CleanWeaponsFromWorld(entity);
-	}
+	CleanWeaponsFromWorld(weapon);
 }
 
 public void OnClientPutInServer(int client)
@@ -70,16 +70,16 @@ public void SDK_OnWeaponDrop_Post(int client, int weapon)
 	g_WeaponInfo[weapon].dropTime = GetGameTime();
 	
 	char classname[128];
-	GetEntityClassname(weapon, classname, sizeof(classname));
+	if (GetEntityClassname(weapon, classname, sizeof(classname)))
+	{
+		if (StrEqual(classname, "weapon_c4", true))
+		{
+			CleanC4FromWorld(weapon);
+			return;
+		}
+	}
 	
-	if (StrEqual(classname, "weapon_c4", true))
-	{
-		CleanC4FromWorld(weapon);
-	}
-	else
-	{
-		CleanWeaponsFromWorld(weapon);
-	}
+	CleanWeaponsFromWorld(weapon);
 }
 
 public void CleanC4FromWorld(int currentWeapon)
@@ -123,8 +123,9 @@ public void CleanWeaponsFromWorld(int currentWeapon)
 	}
 	
 	int ent = -1;
+	char classname[128];
 	ArrayList listWeapons = new ArrayList();
-
+	
 	// Maintain the specified dropped weapons in the world
 	while ((ent = FindEntityByClassname(ent, "weapon_*")) != -1)
 	{
@@ -133,12 +134,12 @@ public void CleanWeaponsFromWorld(int currentWeapon)
 			continue;
 		}
 		
-		char classname[128];
-		GetEntityClassname(ent, classname, sizeof(classname));
-		
-		if (StrEqual(classname, "weapon_c4", true))
+		if (GetEntityClassname(ent, classname, sizeof(classname)))
 		{
-			continue;
+			if (StrEqual(classname, "weapon_c4", true))
+			{
+				continue;
+			}
 		}
 		
 		listWeapons.Push(ent);
