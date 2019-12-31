@@ -19,7 +19,7 @@ enum struct WeaponInfo
 	float dropTime;
 }
 
-WeaponInfo g_WeaponInfo[2049];
+WeaponInfo g_WeaponsInfo[2049];
 
 ConVar g_Cvar_MaxWeapons;
 ConVar g_Cvar_MaxC4;
@@ -33,25 +33,23 @@ public void OnPluginStart()
 
 public void OnEntityCreated(int entity, const char[] classname)
 {
-	if (strncmp(classname, "weapon_", 7, true) != 0)
+	if (strncmp(classname, "weapon_", 7, true) == 0)
 	{
-		return;
+		SDKHook(entity, SDKHook_SpawnPost, SDK_OnWeaponSpawn_Post);
 	}
-	
-	SDKHook(entity, SDKHook_SpawnPost, SDK_OnWeaponSpawn_Post);
 }
 
 public void SDK_OnWeaponSpawn_Post(int weapon)
 {
-	g_WeaponInfo[weapon].mapPlaced = true;
-	g_WeaponInfo[weapon].dropTime = 0.0;
+	g_WeaponsInfo[weapon].mapPlaced = true;
+	g_WeaponsInfo[weapon].dropTime = 0.0;
 	
 	char classname[128];
 	if (GetEntityClassname(weapon, classname, sizeof(classname)))
 	{
 		if (StrEqual(classname, "weapon_c4", true))
 		{
-			CleanC4FromWorld(weapon);
+			CleanC4WeaponsFromWorld(weapon);
 			return;
 		}
 	}
@@ -66,15 +64,15 @@ public void OnClientPutInServer(int client)
 
 public void SDK_OnWeaponDrop_Post(int client, int weapon)
 {
-	g_WeaponInfo[weapon].mapPlaced = false;
-	g_WeaponInfo[weapon].dropTime = GetGameTime();
+	g_WeaponsInfo[weapon].mapPlaced = false;
+	g_WeaponsInfo[weapon].dropTime = GetGameTime();
 	
 	char classname[128];
 	if (GetEntityClassname(weapon, classname, sizeof(classname)))
 	{
 		if (StrEqual(classname, "weapon_c4", true))
 		{
-			CleanC4FromWorld(weapon);
+			CleanC4WeaponsFromWorld(weapon);
 			return;
 		}
 	}
@@ -82,7 +80,7 @@ public void SDK_OnWeaponDrop_Post(int client, int weapon)
 	CleanWeaponsFromWorld(weapon);
 }
 
-public void CleanC4FromWorld(int currentWeapon)
+public void CleanC4WeaponsFromWorld(int currentWeapon)
 {
 	if (g_Cvar_MaxC4.IntValue < 1)
 	{
@@ -95,7 +93,7 @@ public void CleanC4FromWorld(int currentWeapon)
 	// Maintain the specified dropped C4 in the world
 	while ((ent = FindEntityByClassname(ent, "weapon_c4")) != -1)
 	{
-		if (ent == currentWeapon || GetEntityOwner(ent) != -1 || g_WeaponInfo[ent].mapPlaced)
+		if (ent == currentWeapon || GetEntityOwner(ent) != -1 || g_WeaponsInfo[ent].mapPlaced)
 		{
 			continue;
 		}
@@ -129,7 +127,7 @@ public void CleanWeaponsFromWorld(int currentWeapon)
 	// Maintain the specified dropped weapons in the world
 	while ((ent = FindEntityByClassname(ent, "weapon_*")) != -1)
 	{
-		if (ent == currentWeapon || GetEntityOwner(ent) != -1 || g_WeaponInfo[ent].mapPlaced)
+		if (ent == currentWeapon || GetEntityOwner(ent) != -1 || g_WeaponsInfo[ent].mapPlaced)
 		{
 			continue;
 		}
@@ -162,12 +160,12 @@ public int sortWeapons(int index1, int index2, Handle array, Handle hndl)
 	int weapon1 = view_as<ArrayList>(array).Get(index1);
 	int weapon2 = view_as<ArrayList>(array).Get(index2);
 	
-	if (g_WeaponInfo[weapon1].dropTime < g_WeaponInfo[weapon2].dropTime)
+	if (g_WeaponsInfo[weapon1].dropTime < g_WeaponsInfo[weapon2].dropTime)
 	{
 		return 1;
 	}
 	
-	if (g_WeaponInfo[weapon1].dropTime > g_WeaponInfo[weapon2].dropTime)
+	if (g_WeaponsInfo[weapon1].dropTime > g_WeaponsInfo[weapon2].dropTime)
 	{
 		return -1;
 	}
