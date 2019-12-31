@@ -82,7 +82,7 @@ public void SDK_OnWeaponDrop_Post(int client, int weapon)
 
 public void CleanC4WeaponsFromWorld(int currentWeapon)
 {
-	if (g_Cvar_MaxC4.IntValue < 1)
+	if (!g_Cvar_MaxC4.IntValue)
 	{
 		return;
 	}
@@ -115,7 +115,7 @@ public void CleanC4WeaponsFromWorld(int currentWeapon)
 
 public void CleanWeaponsFromWorld(int currentWeapon)
 {
-	if (g_Cvar_MaxWeapons.IntValue < 1)
+	if (!g_Cvar_MaxWeapons.IntValue)
 	{
 		return;
 	}
