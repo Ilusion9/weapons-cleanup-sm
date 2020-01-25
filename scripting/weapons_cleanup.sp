@@ -15,20 +15,23 @@ public Plugin myinfo =
 
 enum struct WeaponInfo
 {
+	bool hasOwner;
+	bool canBePicked;
 	bool mapPlaced;
 	float dropTime;
 }
 
-WeaponInfo g_WeaponsInfo[2049];
-
 ConVar g_Cvar_MaxWeapons;
 ConVar g_Cvar_MaxC4;
+WeaponInfo g_WeaponsInfo[2049];
 
 public void OnPluginStart()
 {
 	g_Cvar_MaxWeapons = CreateConVar("sm_weapon_max_before_cleanup", "24", "Maintain the specified dropped weapons in the world. The C4 will be ignored.", FCVAR_NONE, true, 0.0);
 	g_Cvar_MaxC4 = CreateConVar("sm_c4_max_before_cleanup", "3", "Maintain the specified dropped C4 in the world.", FCVAR_NONE, true, 0.0);
+	
 	AutoExecConfig(true, "weapons_cleanup");
+	HookEvent("round_start", Event_RoundStart);
 }
 
 public void OnEntityCreated(int entity, const char[] classname)
@@ -41,9 +44,11 @@ public void OnEntityCreated(int entity, const char[] classname)
 
 public void SDK_OnWeaponSpawn_Post(int weapon)
 {
-	g_WeaponsInfo[weapon].mapPlaced = true;
+	g_WeaponsInfo[weapon].hasOwner = false;
+	g_WeaponsInfo[weapon].canBePicked = view_as<bool>(GetEntProp(weapon, Prop_Data, "m_bCanBePickedUp"));
+	g_WeaponsInfo[weapon].mapPlaced = false;
 	g_WeaponsInfo[weapon].dropTime = 0.0;
-	
+
 	char classname[128];
 	if (GetEntityClassname(weapon, classname, sizeof(classname)))
 	{
@@ -59,11 +64,18 @@ public void SDK_OnWeaponSpawn_Post(int weapon)
 
 public void OnClientPutInServer(int client)
 {
+	SDKHook(client, SDKHook_WeaponEquipPost, SDK_OnWeaponEquip_Post);
 	SDKHook(client, SDKHook_WeaponDropPost, SDK_OnWeaponDrop_Post);
+}
+
+public void SDK_OnWeaponEquip_Post(int client, int weapon)
+{
+	g_WeaponsInfo[weapon].hasOwner = true;
 }
 
 public void SDK_OnWeaponDrop_Post(int client, int weapon)
 {
+	g_WeaponsInfo[weapon].hasOwner = false;
 	g_WeaponsInfo[weapon].mapPlaced = false;
 	g_WeaponsInfo[weapon].dropTime = GetGameTime();
 	
@@ -80,6 +92,18 @@ public void SDK_OnWeaponDrop_Post(int client, int weapon)
 	CleanWeaponsFromWorld(weapon);
 }
 
+public void Event_RoundStart(Event event, const char[] name, bool dontBroadcast) 
+{
+	int ent = -1;
+	while ((ent = FindEntityByClassname(ent, "weapon_*")) != -1)
+	{
+		if (!g_WeaponsInfo[ent].hasOwner)
+		{
+			g_WeaponsInfo[ent].mapPlaced = true;
+		}
+	}
+}
+
 public void CleanC4WeaponsFromWorld(int currentWeapon)
 {
 	if (!g_Cvar_MaxC4.IntValue)
@@ -93,7 +117,7 @@ public void CleanC4WeaponsFromWorld(int currentWeapon)
 	// Maintain the specified dropped C4 in the world
 	while ((ent = FindEntityByClassname(ent, "weapon_c4")) != -1)
 	{
-		if (ent == currentWeapon || GetEntityOwner(ent) != -1 || g_WeaponsInfo[ent].mapPlaced)
+		if (ent == currentWeapon || g_WeaponsInfo[ent].hasOwner || !g_WeaponsInfo[ent].canBePicked || g_WeaponsInfo[ent].mapPlaced)
 		{
 			continue;
 		}
@@ -101,10 +125,11 @@ public void CleanC4WeaponsFromWorld(int currentWeapon)
 		listWeapons.Push(ent);
 	}
 	
-	if (listWeapons.Length > g_Cvar_MaxC4.IntValue - 1)
+	int maxC4 = g_WeaponsInfo[currentWeapon].hasOwner ? g_Cvar_MaxC4.IntValue : g_Cvar_MaxC4.IntValue - 1;
+	if (listWeapons.Length > maxC4)
 	{
 		listWeapons.SortCustom(sortWeapons);
-		for (int i = g_Cvar_MaxC4.IntValue - 1; i < listWeapons.Length; i++)
+		for (int i = maxC4; i < listWeapons.Length; i++)
 		{
 			AcceptEntityInput(listWeapons.Get(i), "Kill");
 		}
@@ -127,7 +152,7 @@ public void CleanWeaponsFromWorld(int currentWeapon)
 	// Maintain the specified dropped weapons in the world
 	while ((ent = FindEntityByClassname(ent, "weapon_*")) != -1)
 	{
-		if (ent == currentWeapon || GetEntityOwner(ent) != -1 || g_WeaponsInfo[ent].mapPlaced)
+		if (ent == currentWeapon || g_WeaponsInfo[ent].hasOwner || !g_WeaponsInfo[ent].canBePicked || g_WeaponsInfo[ent].mapPlaced)
 		{
 			continue;
 		}
@@ -143,10 +168,11 @@ public void CleanWeaponsFromWorld(int currentWeapon)
 		listWeapons.Push(ent);
 	}
 	
-	if (listWeapons.Length > g_Cvar_MaxWeapons.IntValue - 1)
+	int maxWeapons = g_WeaponsInfo[currentWeapon].hasOwner ? g_Cvar_MaxWeapons.IntValue : g_Cvar_MaxWeapons.IntValue - 1;
+	if (listWeapons.Length > maxWeapons)
 	{
 		listWeapons.SortCustom(sortWeapons);
-		for (int i = g_Cvar_MaxWeapons.IntValue - 1; i < listWeapons.Length; i++)
+		for (int i = maxWeapons; i < listWeapons.Length; i++)
 		{
 			AcceptEntityInput(listWeapons.Get(i), "Kill");
 		}
@@ -171,9 +197,4 @@ public int sortWeapons(int index1, int index2, Handle array, Handle hndl)
 	}
 	
 	return 0;
-}
-
-int GetEntityOwner(int entity)
-{
-	return GetEntPropEnt(entity, Prop_Data, "m_hOwnerEntity");
 }
