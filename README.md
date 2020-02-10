@@ -1,6 +1,6 @@
 # Description
 Maintain the specified dropped weapons in the world.
-Designed for surf rpg/combat servers (maps with game_player_equip entities). For other modes (casual/competitive) just use the weapon_max_before_cleanup convar.
+Designed for surf rpg/combat servers (maps with game_player_equip entities). For other modes (casual/competitive) just use the weapon_max_before_cleanup convar. Designed for CSGO only. Might work on CSS.
 
 # Alliedmods
 https://forums.alliedmods.net/showthread.php?t=319675
