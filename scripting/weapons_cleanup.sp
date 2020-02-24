@@ -1,37 +1,72 @@
 #include <sourcemod>
 #include <sdkhooks>
 #include <sdktools>
-
 #pragma newdecls required
 
 public Plugin myinfo =
 {
 	name = "Weapons Cleanup",
 	author = "Ilusion9",
-	description = "Maintain the specified dropped weapons in the world",
-	version = "1.1",
+	description = "Maintain the specified dropped weapons in the world.",
+	version = "1.2",
 	url = "https://github.com/Ilusion9/"
 };
 
+#define MAXENTITIES 2048
+enum EventType
+{
+	WeaponSpawn,
+	WeaponDrop
+}
+
 enum struct WeaponInfo
 {
-	bool hasOwner;
-	bool canBePicked;
 	bool mapPlaced;
 	float dropTime;
 }
 
 ConVar g_Cvar_MaxWeapons;
 ConVar g_Cvar_MaxC4;
-WeaponInfo g_WeaponsInfo[2049];
+WeaponInfo g_WeaponsInfo[MAXENTITIES + 1];
 
 public void OnPluginStart()
 {
-	g_Cvar_MaxWeapons = CreateConVar("sm_weapon_max_before_cleanup", "24", "Maintain the specified dropped weapons in the world. The C4 will be ignored.", FCVAR_NONE, true, 0.0);
-	g_Cvar_MaxC4 = CreateConVar("sm_c4_max_before_cleanup", "3", "Maintain the specified dropped C4 in the world.", FCVAR_NONE, true, 0.0);
+	g_Cvar_MaxWeapons = CreateConVar("sm_weapon_max_before_cleanup", "24", "Maintain the specified dropped weapons in the world. The C4 will be ignored.", FCVAR_PROTECTED, true, 0.0);
+	g_Cvar_MaxWeapons.AddChangeHook(ConVarChange_MaxWeapons);
 	
+	g_Cvar_MaxC4 = CreateConVar("sm_c4_max_before_cleanup", "3", "Maintain the specified dropped C4 in the world.", FCVAR_PROTECTED, true, 0.0);
+	g_Cvar_MaxC4.AddChangeHook(ConVarChange_MaxC4);
+
 	AutoExecConfig(true, "weapons_cleanup");
 	HookEvent("round_start", Event_RoundStart);
+}
+
+public void ConVarChange_MaxWeapons(ConVar convar, const char[] oldValue, const char[] newValue)
+{
+	if (!g_Cvar_MaxWeapons.IntValue)
+	{
+		return;
+	}
+	
+	int value = StringToInt(oldValue);
+	if (!value || g_Cvar_MaxWeapons.IntValue < value)
+	{
+		KeepMaxDroppedWeapons_ConVarChange(false);
+	}
+}
+
+public void ConVarChange_MaxC4(ConVar convar, const char[] oldValue, const char[] newValue)
+{
+	if (!g_Cvar_MaxC4.IntValue)
+	{
+		return;
+	}
+	
+	int value = StringToInt(oldValue);
+	if (!value || g_Cvar_MaxC4.IntValue < value)
+	{
+		KeepMaxDroppedWeapons_ConVarChange(true);
+	}
 }
 
 public void OnEntityCreated(int entity, const char[] classname)
@@ -44,52 +79,27 @@ public void OnEntityCreated(int entity, const char[] classname)
 
 public void SDK_OnWeaponSpawn_Post(int weapon)
 {
-	g_WeaponsInfo[weapon].hasOwner = false;
-	g_WeaponsInfo[weapon].canBePicked = view_as<bool>(GetEntProp(weapon, Prop_Data, "m_bCanBePickedUp"));
 	g_WeaponsInfo[weapon].mapPlaced = false;
 	g_WeaponsInfo[weapon].dropTime = 0.0;
-
-	char classname[128];
-	if (GetEntityClassname(weapon, classname, sizeof(classname)))
-	{
-		if (StrEqual(classname, "weapon_c4", true))
-		{
-			CleanC4WeaponsFromWorld(weapon);
-			return;
-		}
-	}
 	
-	CleanWeaponsFromWorld(weapon);
+	char classname[65];
+	bool caseC4 = GetEntityClassname(weapon, classname, sizeof(classname)) && StrEqual(classname, "weapon_c4", true);
+	KeepMaxDroppedWeapons(weapon, WeaponSpawn, caseC4);
 }
 
 public void OnClientPutInServer(int client)
 {
-	SDKHook(client, SDKHook_WeaponEquipPost, SDK_OnWeaponEquip_Post);
 	SDKHook(client, SDKHook_WeaponDropPost, SDK_OnWeaponDrop_Post);
-}
-
-public void SDK_OnWeaponEquip_Post(int client, int weapon)
-{
-	g_WeaponsInfo[weapon].hasOwner = true;
 }
 
 public void SDK_OnWeaponDrop_Post(int client, int weapon)
 {
-	g_WeaponsInfo[weapon].hasOwner = false;
 	g_WeaponsInfo[weapon].mapPlaced = false;
 	g_WeaponsInfo[weapon].dropTime = GetGameTime();
 	
-	char classname[128];
-	if (GetEntityClassname(weapon, classname, sizeof(classname)))
-	{
-		if (StrEqual(classname, "weapon_c4", true))
-		{
-			CleanC4WeaponsFromWorld(weapon);
-			return;
-		}
-	}
-	
-	CleanWeaponsFromWorld(weapon);
+	char classname[65];
+	bool caseC4 = GetEntityClassname(weapon, classname, sizeof(classname)) && StrEqual(classname, "weapon_c4", true);
+	KeepMaxDroppedWeapons(weapon, WeaponDrop, caseC4);
 }
 
 public void Event_RoundStart(Event event, const char[] name, bool dontBroadcast) 
@@ -97,88 +107,169 @@ public void Event_RoundStart(Event event, const char[] name, bool dontBroadcast)
 	int ent = -1;
 	while ((ent = FindEntityByClassname(ent, "weapon_*")) != -1)
 	{
-		if (!g_WeaponsInfo[ent].hasOwner)
-		{
-			g_WeaponsInfo[ent].mapPlaced = true;
-		}
-	}
-}
-
-public void CleanC4WeaponsFromWorld(int currentWeapon)
-{
-	if (!g_Cvar_MaxC4.IntValue)
-	{
-		return;
-	}
-	
-	int ent = -1;
-	ArrayList listWeapons = new ArrayList();
-	
-	// Maintain the specified dropped C4 in the world
-	while ((ent = FindEntityByClassname(ent, "weapon_c4")) != -1)
-	{
-		if (ent == currentWeapon || g_WeaponsInfo[ent].hasOwner || !g_WeaponsInfo[ent].canBePicked || g_WeaponsInfo[ent].mapPlaced)
+		if (GetEntityOwner(ent) != -1)
 		{
 			continue;
 		}
 		
-		listWeapons.Push(ent);
+		g_WeaponsInfo[ent].mapPlaced = true;
 	}
-	
-	int maxC4 = g_WeaponsInfo[currentWeapon].hasOwner ? g_Cvar_MaxC4.IntValue : g_Cvar_MaxC4.IntValue - 1;
-	if (listWeapons.Length > maxC4)
-	{
-		listWeapons.SortCustom(sortWeapons);
-		for (int i = maxC4; i < listWeapons.Length; i++)
-		{
-			AcceptEntityInput(listWeapons.Get(i), "Kill");
-		}
-	}
-	
-	delete listWeapons;
 }
 
-public void CleanWeaponsFromWorld(int currentWeapon)
+void KeepMaxDroppedWeapons(int currentWeapon, EventType eventType, bool caseC4)
 {
-	if (!g_Cvar_MaxWeapons.IntValue)
+	if (caseC4)
 	{
-		return;
-	}
-	
-	int ent = -1;
-	char classname[128];
-	ArrayList listWeapons = new ArrayList();
-	
-	// Maintain the specified dropped weapons in the world
-	while ((ent = FindEntityByClassname(ent, "weapon_*")) != -1)
-	{
-		if (ent == currentWeapon || g_WeaponsInfo[ent].hasOwner || !g_WeaponsInfo[ent].canBePicked || g_WeaponsInfo[ent].mapPlaced)
+		if (!g_Cvar_MaxC4.IntValue)
 		{
-			continue;
+			return;
 		}
 		
-		if (GetEntityClassname(ent, classname, sizeof(classname)))
+		int ent = -1, toRemove = -1, droppedWeapons = 0;
+		while ((ent = FindEntityByClassname(ent, "weapon_c4")) != -1)
 		{
-			if (StrEqual(classname, "weapon_c4", true))
+			if (ent == currentWeapon || GetEntityOwner(ent) != -1 || !CanBePickedUp(ent) || g_WeaponsInfo[ent].mapPlaced)
 			{
 				continue;
 			}
+			
+			droppedWeapons++;
+			if (toRemove != -1)
+			{
+				if (g_WeaponsInfo[ent].dropTime < g_WeaponsInfo[toRemove].dropTime)
+				{
+					toRemove = ent;
+				}
+			}
+			else
+			{
+				toRemove = ent;
+			}
 		}
 		
-		listWeapons.Push(ent);
-	}
-	
-	int maxWeapons = g_WeaponsInfo[currentWeapon].hasOwner ? g_Cvar_MaxWeapons.IntValue : g_Cvar_MaxWeapons.IntValue - 1;
-	if (listWeapons.Length > maxWeapons)
-	{
-		listWeapons.SortCustom(sortWeapons);
-		for (int i = maxWeapons; i < listWeapons.Length; i++)
+		int maxC4 = eventType != WeaponDrop ? g_Cvar_MaxC4.IntValue : g_Cvar_MaxC4.IntValue - 1;
+		if (droppedWeapons > maxC4)
 		{
-			AcceptEntityInput(listWeapons.Get(i), "Kill");
+			AcceptEntityInput(toRemove, "Kill");
+		}
+	}
+	else
+	{
+		if (!g_Cvar_MaxWeapons.IntValue)
+		{
+			return;
+		}
+		
+		char classname[64];
+		int ent = -1, toRemove = -1, droppedWeapons = 0;
+
+		while ((ent = FindEntityByClassname(ent, "weapon_*")) != -1)
+		{
+			if (ent == currentWeapon || GetEntityOwner(ent) != -1 || !CanBePickedUp(ent) || g_WeaponsInfo[ent].mapPlaced)
+			{
+				continue;
+			}
+			
+			if (GetEntityClassname(ent, classname, sizeof(classname)))
+			{
+				if (StrEqual(classname, "weapon_c4", true))
+				{
+					continue;
+				}
+			}
+			
+			droppedWeapons++;
+			if (toRemove != -1)
+			{
+				if (g_WeaponsInfo[ent].dropTime < g_WeaponsInfo[toRemove].dropTime)
+				{
+					toRemove = ent;
+				}
+			}
+			else
+			{
+				toRemove = ent;
+			}
+		}
+		
+		int maxWeapons = eventType != WeaponDrop ? g_Cvar_MaxWeapons.IntValue : g_Cvar_MaxWeapons.IntValue - 1;
+		if (droppedWeapons > maxWeapons)
+		{
+			AcceptEntityInput(toRemove, "Kill");
+		}
+	}
+}
+
+void KeepMaxDroppedWeapons_ConVarChange(bool caseC4)
+{
+	ArrayList listWeapons = new ArrayList();
+	
+	if (caseC4)
+	{
+		int ent = -1;
+		while ((ent = FindEntityByClassname(ent, "weapon_c4")) != -1)
+		{
+			if (GetEntityOwner(ent) != -1 || !CanBePickedUp(ent) || g_WeaponsInfo[ent].mapPlaced)
+			{
+				continue;
+			}
+			
+			listWeapons.Push(ent);
+		}
+		
+		if (listWeapons.Length > g_Cvar_MaxC4.IntValue)
+		{
+			listWeapons.SortCustom(sortWeapons);
+			for (int i = g_Cvar_MaxC4.IntValue; i < listWeapons.Length; i++)
+			{
+				AcceptEntityInput(listWeapons.Get(i), "Kill");
+			}
+		}
+	}
+	else
+	{
+		int ent = -1;
+		char classname[64];
+		
+		while ((ent = FindEntityByClassname(ent, "weapon_*")) != -1)
+		{
+			if (GetEntityOwner(ent) != -1 || !CanBePickedUp(ent) || g_WeaponsInfo[ent].mapPlaced)
+			{
+				continue;
+			}
+			
+			if (GetEntityClassname(ent, classname, sizeof(classname)))
+			{
+				if (StrEqual(classname, "weapon_c4", true))
+				{
+					continue;
+				}
+			}
+			
+			listWeapons.Push(ent);
+		}
+		
+		if (listWeapons.Length > g_Cvar_MaxWeapons.IntValue)
+		{
+			listWeapons.SortCustom(sortWeapons);
+			for (int i = g_Cvar_MaxWeapons.IntValue; i < listWeapons.Length; i++)
+			{
+				AcceptEntityInput(listWeapons.Get(i), "Kill");
+			}
 		}
 	}
 	
 	delete listWeapons;
+}
+
+int GetEntityOwner(int entity)
+{
+	return GetEntPropEnt(entity, Prop_Data, "m_hOwnerEntity");
+}
+
+bool CanBePickedUp(int entity)
+{
+	return view_as<bool>(GetEntProp(entity, Prop_Data, "m_bCanBePickedUp"));
 }
 
 public int sortWeapons(int index1, int index2, Handle array, Handle hndl)
