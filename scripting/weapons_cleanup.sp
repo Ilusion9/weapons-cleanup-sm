@@ -72,7 +72,7 @@ public void ConVarChange_MaxWeapons(ConVar convar, const char[] oldValue, const 
 	int value = StringToInt(oldValue);
 	if (!value || g_Cvar_MaxWeapons.IntValue < value)
 	{
-		ManageDroppedWeapons();
+		ManageDroppedWeapons(-1, false);
 	}
 }
 
@@ -86,7 +86,7 @@ public void ConVarChange_MaxC4(ConVar convar, const char[] oldValue, const char[
 	int value = StringToInt(oldValue);
 	if (!value || g_Cvar_MaxC4.IntValue < value)
 	{
-		ManageDroppedC4();
+		ManageDroppedWeapons(-1, true);
 	}
 }
 
@@ -133,7 +133,7 @@ public void Frame_WeaponSpawn(any data)
 		return;
 	}
 	
-	ManageWeapon(weapon);
+	ManageDroppedWeapons(weapon, IsWeaponC4(weapon));
 }
 
 public void OnClientPutInServer(int client)
@@ -162,7 +162,7 @@ public void Frame_WeaponDrop(any data)
 		return;
 	}
 	
-	ManageWeapon(weapon);
+	ManageDroppedWeapons(weapon, IsWeaponC4(weapon));
 }
 
 public void Event_RoundStart(Event event, const char[] name, bool dontBroadcast) 
@@ -196,94 +196,36 @@ public void Event_RoundEnd(Event event, const char[] name, bool dontBroadcast)
 	g_HasRoundStarted = false;
 }
 
-void ManageWeapon(int weapon)
+void ManageDroppedWeapons(int currentWeapon = -1, bool caseC4 = false)
 {
-	if (IsWeaponC4(weapon))
-	{
-		if (g_Cvar_MaxC4.IntValue)
-		{
-			ManageDroppedC4(weapon);
-		}
-		
-		return;
-	}
-	
-	if (g_Cvar_MaxWeapons.IntValue)
-	{
-		ManageDroppedWeapons(weapon);
-	}
-}
-
-void ManageDroppedC4(int ignoreWeapon = -1)
-{
-	int ent = -1;
-	ArrayList listWeapons = new ArrayList();
-	
-	while ((ent = FindEntityByClassname(ent, "weapon_c4")) != -1)
-	{
-		if (ent == ignoreWeapon || IsEntityOwned(ent) || !CanBePickedUp(ent) || g_WeaponsInfo[ent].mapPlaced)
-		{
-			continue;
-		}
-		
-		listWeapons.Push(ent);
-	}
-	
-	int maxWeapons = g_Cvar_MaxC4.IntValue;
-	if (ignoreWeapon != -1 && !IsEntityOwned(ignoreWeapon))
-	{
-		maxWeapons--;
-	}
-	
-	int diff = listWeapons.Length - maxWeapons;
-	if (diff > 1)
-	{
-		listWeapons.SortCustom(sortWeapons);
-		for (int i = maxWeapons; i < listWeapons.Length; i++)
-		{
-			AcceptEntityInput(listWeapons.Get(i), "Kill");
-		}
-	}
-	else if (diff == 1)
-	{
-		int toRemove = listWeapons.Get(0);
-		for (int i = 1; i < listWeapons.Length; i++)
-		{
-			ent = listWeapons.Get(i);
-			if (g_WeaponsInfo[ent].dropTime < g_WeaponsInfo[toRemove].dropTime)
-			{
-				toRemove = ent;
-			}
-		}
-		
-		AcceptEntityInput(toRemove, "Kill");
-	}
-	
-	delete listWeapons;
-}
-
-void ManageDroppedWeapons(int ignoreWeapon = -1)
-{
-	int ent = -1;
-	ArrayList listWeapons = new ArrayList();
-	
-	while ((ent = FindEntityByClassname(ent, "weapon_*")) != -1)
-	{
-		if (ent == ignoreWeapon || IsEntityOwned(ent) || !CanBePickedUp(ent) || g_WeaponsInfo[ent].mapPlaced)
-		{
-			continue;
-		}
-		
-		if (IsWeaponC4(ent))
-		{
-			continue;
-		}
-		
-		listWeapons.Push(ent);
-	}
-	
 	int maxWeapons = g_Cvar_MaxWeapons.IntValue;
-	if (ignoreWeapon != -1 && !IsEntityOwned(ignoreWeapon))
+	char classname[64] = "weapon_*";
+	
+	if (caseC4)
+	{
+		maxWeapons = g_Cvar_MaxC4.IntValue;
+		strcopy(classname, sizeof(classname), g_WeaponsInfo[currentWeapon].classname);
+	}
+	
+	int ent = -1;
+	ArrayList listWeapons = new ArrayList();
+	
+	while ((ent = FindEntityByClassname(ent, classname)) != -1)
+	{
+		if (ent == currentWeapon || IsEntityOwned(ent) || !CanBePickedUp(ent) || g_WeaponsInfo[ent].mapPlaced)
+		{
+			continue;
+		}
+		
+		if (!caseC4 && IsWeaponC4(ent))
+		{
+			continue;
+		}
+		
+		listWeapons.Push(ent);
+	}
+	
+	if (currentWeapon != -1 && !IsEntityOwned(currentWeapon))
 	{
 		maxWeapons--;
 	}
