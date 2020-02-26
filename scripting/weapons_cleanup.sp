@@ -18,6 +18,7 @@ enum struct WeaponInfo
 	char classname[128];
 	bool mapPlaced;
 	float dropTime;
+	float spawnTime;
 }
 
 bool g_IsPluginLoadedLate;
@@ -104,8 +105,15 @@ public void SDK_OnWeaponSpawn_Post(int weapon)
 		return;
 	}
 	
+	float gameTime = GetGameTime();
+	if (gameTime - g_WeaponsInfo[weapon].spawnTime < 1.0) // SDKSpawn is called twice ...
+	{
+		return;
+	}
+	
 	g_WeaponsInfo[weapon].mapPlaced = false;
 	g_WeaponsInfo[weapon].dropTime = 0.0;
+	g_WeaponsInfo[weapon].spawnTime = gameTime;
 	Format(g_WeaponsInfo[weapon].classname, sizeof(WeaponInfo::classname), "");
 	
 	RequestFrame(Frame_WeaponSpawn, EntIndexToEntRef(weapon));
@@ -273,7 +281,6 @@ void ManageDroppedWeapons(int ignoreWeapon = -1)
 		
 		listWeapons.Push(ent);
 	}
-	LogMessage("call");
 	
 	int maxWeapons = g_Cvar_MaxWeapons.IntValue;
 	if (ignoreWeapon != -1 && !IsEntityOwned(ignoreWeapon))
