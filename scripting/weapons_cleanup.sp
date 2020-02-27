@@ -15,8 +15,8 @@ public Plugin myinfo =
 #define MAXENTITIES 2048
 enum struct WeaponInfo
 {
-	char classname[128];
 	bool mapPlaced;
+	bool isBomb;
 	float dropTime;
 	float spawnTime;
 }
@@ -25,7 +25,7 @@ bool g_IsPluginLoadedLate;
 bool g_HasRoundStarted;
 
 ConVar g_Cvar_MaxWeapons;
-ConVar g_Cvar_MaxC4;
+ConVar g_Cvar_MaxBombs;
 WeaponInfo g_WeaponsInfo[MAXENTITIES + 1];
 
 public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max)
@@ -38,8 +38,8 @@ public void OnPluginStart()
 	g_Cvar_MaxWeapons = CreateConVar("sm_weapon_max_before_cleanup", "24", "Maintain the specified dropped weapons in the world. The C4 will be ignored.", FCVAR_PROTECTED, true, 0.0);
 	g_Cvar_MaxWeapons.AddChangeHook(ConVarChange_MaxWeapons);
 	
-	g_Cvar_MaxC4 = CreateConVar("sm_c4_max_before_cleanup", "3", "Maintain the specified dropped C4 in the world.", FCVAR_PROTECTED, true, 0.0);
-	g_Cvar_MaxC4.AddChangeHook(ConVarChange_MaxC4);
+	g_Cvar_MaxBombs = CreateConVar("sm_c4_max_before_cleanup", "3", "Maintain the specified dropped C4 bombs in the world.", FCVAR_PROTECTED, true, 0.0);
+	g_Cvar_MaxBombs.AddChangeHook(ConVarChange_MaxC4);
 
 	AutoExecConfig(true, "weapons_cleanup");
 	HookEvent("round_start", Event_RoundStart);
@@ -72,30 +72,33 @@ public void ConVarChange_MaxWeapons(ConVar convar, const char[] oldValue, const 
 	int value = StringToInt(oldValue);
 	if (!value || g_Cvar_MaxWeapons.IntValue < value)
 	{
-		ManageDroppedWeapons(-1, false);
+		ManageWorldWeapons();
 	}
 }
 
 public void ConVarChange_MaxC4(ConVar convar, const char[] oldValue, const char[] newValue)
 {
-	if (!g_Cvar_MaxC4.IntValue)
+	if (!g_Cvar_MaxBombs.IntValue)
 	{
 		return;
 	}
 	
 	int value = StringToInt(oldValue);
-	if (!value || g_Cvar_MaxC4.IntValue < value)
+	if (!value || g_Cvar_MaxBombs.IntValue < value)
 	{
-		ManageDroppedWeapons(-1, true);
+		ManageWorldBombs();
 	}
 }
 
 public void OnEntityCreated(int entity, const char[] classname)
 {
-	if (strncmp(classname, "weapon_", 7, true) == 0)
+	if (strncmp(classname, "weapon_", 7, true) != 0)
 	{
-		SDKHook(entity, SDKHook_SpawnPost, SDK_OnWeaponSpawn_Post);
+		return;
 	}
+	
+	g_WeaponsInfo[entity].isBomb = StrEqual(classname[7], "c4", true);
+	SDKHook(entity, SDKHook_SpawnPost, SDK_OnWeaponSpawn_Post);
 }
 
 public void SDK_OnWeaponSpawn_Post(int weapon)
@@ -114,7 +117,6 @@ public void SDK_OnWeaponSpawn_Post(int weapon)
 	g_WeaponsInfo[weapon].mapPlaced = false;
 	g_WeaponsInfo[weapon].dropTime = 0.0;
 	g_WeaponsInfo[weapon].spawnTime = gameTime;
-	Format(g_WeaponsInfo[weapon].classname, sizeof(WeaponInfo::classname), "");
 	
 	RequestFrame(Frame_WeaponSpawn, EntIndexToEntRef(weapon));
 }
@@ -127,13 +129,19 @@ public void Frame_WeaponSpawn(any data)
 		return;
 	}
 	
-	GetEntityClassname(weapon, g_WeaponsInfo[weapon].classname, sizeof(WeaponInfo::classname));
 	if (!g_HasRoundStarted)
 	{
 		return;
 	}
 	
-	ManageDroppedWeapons(weapon, IsWeaponC4(weapon));
+	if (g_WeaponsInfo[weapon].isBomb)
+	{
+		ManageWorldBombs(weapon);
+	}
+	else
+	{
+		ManageWorldWeapons(weapon);
+	}
 }
 
 public void OnClientPutInServer(int client)
@@ -162,7 +170,14 @@ public void Frame_WeaponDrop(any data)
 		return;
 	}
 	
-	ManageDroppedWeapons(weapon, IsWeaponC4(weapon));
+	if (g_WeaponsInfo[weapon].isBomb)
+	{
+		ManageWorldBombs(weapon);
+	}
+	else
+	{
+		ManageWorldWeapons(weapon);
+	}
 }
 
 public void Event_RoundStart(Event event, const char[] name, bool dontBroadcast) 
@@ -196,28 +211,14 @@ public void Event_RoundEnd(Event event, const char[] name, bool dontBroadcast)
 	g_HasRoundStarted = false;
 }
 
-void ManageDroppedWeapons(int currentWeapon = -1, bool caseC4 = false)
+void ManageWorldBombs(int currentWeapon = -1)
 {
-	int maxWeapons = g_Cvar_MaxWeapons.IntValue;
-	char classname[64] = "weapon_*";
-	
-	if (caseC4)
-	{
-		maxWeapons = g_Cvar_MaxC4.IntValue;
-		strcopy(classname, sizeof(classname), g_WeaponsInfo[currentWeapon].classname);
-	}
-	
 	int ent = -1;
 	ArrayList listWeapons = new ArrayList();
 	
-	while ((ent = FindEntityByClassname(ent, classname)) != -1)
+	while ((ent = FindEntityByClassname(ent, "weapon_c4")) != -1)
 	{
 		if (ent == currentWeapon || IsEntityOwned(ent) || !CanBePickedUp(ent) || g_WeaponsInfo[ent].mapPlaced)
-		{
-			continue;
-		}
-		
-		if (!caseC4 && IsWeaponC4(ent))
 		{
 			continue;
 		}
@@ -225,11 +226,43 @@ void ManageDroppedWeapons(int currentWeapon = -1, bool caseC4 = false)
 		listWeapons.Push(ent);
 	}
 	
+	int maxWeapons = g_Cvar_MaxBombs.IntValue;
 	if (currentWeapon != -1 && !IsEntityOwned(currentWeapon))
 	{
 		maxWeapons--;
 	}
 	
+	RemoveOldestWeapons(listWeapons, maxWeapons);
+	delete listWeapons;
+}
+
+void ManageWorldWeapons(int currentWeapon = -1)
+{
+	int ent = -1;
+	ArrayList listWeapons = new ArrayList();
+	
+	while ((ent = FindEntityByClassname(ent, "weapon_*")) != -1)
+	{
+		if (ent == currentWeapon || IsEntityOwned(ent) || !CanBePickedUp(ent) || g_WeaponsInfo[ent].mapPlaced || g_WeaponsInfo[ent].isBomb)
+		{
+			continue;
+		}
+		
+		listWeapons.Push(ent);
+	}
+	
+	int maxWeapons = g_Cvar_MaxWeapons.IntValue;
+	if (currentWeapon != -1 && !IsEntityOwned(currentWeapon))
+	{
+		maxWeapons--;
+	}
+	
+	RemoveOldestWeapons(listWeapons, maxWeapons);
+	delete listWeapons;
+}
+
+void RemoveOldestWeapons(ArrayList listWeapons, int maxWeapons)
+{
 	int diff = listWeapons.Length - maxWeapons;
 	if (diff > 1)
 	{
@@ -238,33 +271,31 @@ void ManageDroppedWeapons(int currentWeapon = -1, bool caseC4 = false)
 		{
 			AcceptEntityInput(listWeapons.Get(i), "Kill");
 		}
+		
+		return;
 	}
-	else if (diff == 1)
+	
+	if (diff == 1)
 	{
+		int toCompare;
 		int toRemove = listWeapons.Get(0);
+		
 		for (int i = 1; i < listWeapons.Length; i++)
 		{
-			ent = listWeapons.Get(i);
-			if (g_WeaponsInfo[ent].dropTime < g_WeaponsInfo[toRemove].dropTime)
+			toCompare = listWeapons.Get(i);
+			if (g_WeaponsInfo[toCompare].dropTime < g_WeaponsInfo[toRemove].dropTime)
 			{
-				toRemove = ent;
+				toRemove = toCompare;
 			}
 		}
 		
 		AcceptEntityInput(toRemove, "Kill");
 	}
-	
-	delete listWeapons;
 }
 
 bool IsWarmupPeriod()
 {
 	return GameRules_GetProp("m_bWarmupPeriod") != 0;
-}
-
-bool IsWeaponC4(int weapon)
-{
-	return StrEqual(g_WeaponsInfo[weapon].classname[7], "c4", true);
 }
 
 bool IsEntityOwned(int entity)
