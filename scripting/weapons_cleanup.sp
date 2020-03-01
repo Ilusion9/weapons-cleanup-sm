@@ -203,18 +203,6 @@ void ManageDroppedWeapons()
 void RemoveOldestWeapons(ArrayList listWeapons, int maxWeapons)
 {
 	int diff = listWeapons.Length - maxWeapons;
-	
-	if (diff > 1)
-	{
-		listWeapons.SortCustom(sortWeapons);
-		for (int i = maxWeapons; i < listWeapons.Length; i++)
-		{
-			AcceptEntityInput(listWeapons.Get(i), "Kill");
-		}
-		
-		return;
-	}
-	
 	if (diff == 1)
 	{
 		int toCompare;
@@ -230,6 +218,14 @@ void RemoveOldestWeapons(ArrayList listWeapons, int maxWeapons)
 		}
 		
 		AcceptEntityInput(toRemove, "Kill");
+	}
+	else if (diff > 1)
+	{
+		listWeapons.SortCustom(sortWeapons);
+		for (int i = maxWeapons; i < listWeapons.Length; i++)
+		{
+			AcceptEntityInput(listWeapons.Get(i), "Kill");
+		}
 	}
 }
 
