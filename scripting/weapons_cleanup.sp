@@ -8,22 +8,24 @@ public Plugin myinfo =
 	name = "Weapons Cleanup",
 	author = "Ilusion9",
 	description = "Maintain the specified dropped weapons in the world.",
-	version = "1.2",
+	version = "1.3",
 	url = "https://github.com/Ilusion9/"
 };
 
 #define MAXENTITIES 2048
 enum struct WeaponInfo
 {
-	bool mapPlaced;
+	bool isMapPlaced;
 	bool canBePicked;
 	bool isBomb;
+	bool isItem;
 	float dropTime;
 }
 
 bool g_IsPluginLoadedLate;
 ConVar g_Cvar_MaxWeapons;
 ConVar g_Cvar_MaxBombs;
+ConVar g_Cvar_MaxItems;
 WeaponInfo g_WeaponsInfo[MAXENTITIES + 1];
 
 public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max)
@@ -34,7 +36,8 @@ public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max
 public void OnPluginStart()
 {
 	g_Cvar_MaxWeapons = CreateConVar("sm_weapon_max_before_cleanup", "24", "Maintain the specified dropped weapons in the world.", FCVAR_PROTECTED, true, 0.0);
-	g_Cvar_MaxBombs = CreateConVar("sm_c4_max_before_cleanup", "5", "Maintain the specified dropped C4 bombs in the world.", FCVAR_PROTECTED, true, 0.0);
+	g_Cvar_MaxItems = CreateConVar("sm_item_max_before_cleanup", "16", "Maintain the specified dropped items in the world.", FCVAR_PROTECTED, true, 0.0);
+	g_Cvar_MaxBombs = CreateConVar("sm_c4_max_before_cleanup", "1", "Maintain the specified dropped C4 bombs in the world.", FCVAR_PROTECTED, true, 0.0);
 	
 	AutoExecConfig(true, "weapons_cleanup");
 	HookEvent("round_start", Event_RoundStart);
@@ -53,13 +56,23 @@ public void OnPluginStart()
 
 public void OnEntityCreated(int entity, const char[] classname)
 {
-	if (strncmp(classname, "weapon_", 7, true) != 0)
+	if (StrNumEqual(classname, "weapon_", 7, true))
 	{
-		return;
+		g_WeaponsInfo[entity].isItem = false;
+		g_WeaponsInfo[entity].isBomb = StrEqual(classname[7], "c4", true);
+		g_WeaponsInfo[entity].isMapPlaced = false;
+		
+		SDKHook(entity, SDKHook_SpawnPost, SDK_OnWeaponSpawn_Post);
 	}
 	
-	g_WeaponsInfo[entity].isBomb = StrEqual(classname[7], "c4", true);
-	SDKHook(entity, SDKHook_SpawnPost, SDK_OnWeaponSpawn_Post);
+	else if (StrNumEqual(classname, "item_", 5, true))
+	{
+		g_WeaponsInfo[entity].isItem = true;
+		g_WeaponsInfo[entity].isBomb = false;
+		g_WeaponsInfo[entity].isMapPlaced = false;
+		
+		SDKHook(entity, SDKHook_SpawnPost, SDK_OnWeaponSpawn_Post);
+	}
 }
 
 public void SDK_OnWeaponSpawn_Post(int weapon)
@@ -69,8 +82,6 @@ public void SDK_OnWeaponSpawn_Post(int weapon)
 		return;
 	}
 	
-	g_WeaponsInfo[weapon].mapPlaced = false;
-	g_WeaponsInfo[weapon].dropTime = GetGameTime();
 	RequestFrame(Frame_OnWeaponSpawn_Post, EntIndexToEntRef(weapon));
 }
 
@@ -82,20 +93,28 @@ public void Frame_OnWeaponSpawn_Post(any data)
 		return;
 	}
 	
-	g_WeaponsInfo[weapon].canBePicked = CanBePickedUp(weapon);
-	if (IsEntityOwned(weapon))
+	g_WeaponsInfo[weapon].dropTime = GetGameTime();
+	g_WeaponsInfo[weapon].canBePicked = g_WeaponsInfo[weapon].isItem ? true : CanBePickedUp(weapon);
+	
+	if (HasOwner(weapon))
 	{
+		// The number of dropped entities has not changed
+		return;
+	}
+	
+	if (g_WeaponsInfo[weapon].isItem)
+	{
+		ManageDroppedItems();
 		return;
 	}
 	
 	if (g_WeaponsInfo[weapon].isBomb)
 	{
 		ManageDroppedC4();
+		return;
 	}
-	else
-	{
-		ManageDroppedWeapons();
-	}
+
+	ManageDroppedWeapons();
 }
 
 public void OnClientPutInServer(int client)
@@ -110,8 +129,9 @@ public void SDK_OnWeaponDrop_Post(int client, int weapon)
 		return;
 	}
 	
-	g_WeaponsInfo[weapon].mapPlaced = false;
+	g_WeaponsInfo[weapon].isMapPlaced = false;
 	g_WeaponsInfo[weapon].dropTime = GetGameTime();
+	
 	RequestFrame(Frame_OnWeaponDrop_Post, EntIndexToEntRef(weapon));
 }
 
@@ -123,14 +143,19 @@ public void Frame_OnWeaponDrop_Post(any data)
 		return;
 	}
 	
+	if (g_WeaponsInfo[weapon].isItem)
+	{
+		ManageDroppedItems();
+		return;
+	}
+	
 	if (g_WeaponsInfo[weapon].isBomb)
 	{
 		ManageDroppedC4();
+		return;
 	}
-	else
-	{
-		ManageDroppedWeapons();
-	}
+
+	ManageDroppedWeapons();
 }
 
 public void Event_RoundStart(Event event, const char[] name, bool dontBroadcast) 
@@ -143,13 +168,48 @@ public void Frame_Event_RoundStart(any data)
 	int ent = -1;
 	while ((ent = FindEntityByClassname(ent, "weapon_*")) != -1)
 	{
-		if (IsEntityOwned(ent))
+		if (HasOwner(ent))
 		{
 			continue;
 		}
 		
-		g_WeaponsInfo[ent].mapPlaced = true;
+		g_WeaponsInfo[ent].isMapPlaced = true;
 	}
+	
+	ent = -1;
+	while ((ent = FindEntityByClassname(ent, "item_*")) != -1)
+	{
+		if (HasOwner(ent))
+		{
+			continue;
+		}
+		
+		g_WeaponsInfo[ent].isMapPlaced = true;
+	}
+}
+
+void ManageDroppedItems()
+{
+	if (!g_Cvar_MaxItems.IntValue)
+	{
+		return;
+	}
+	
+	int ent = -1;
+	ArrayList listWeapons = new ArrayList();
+	
+	while ((ent = FindEntityByClassname(ent, "item_*")) != -1)
+	{
+		if (HasOwner(ent) || g_WeaponsInfo[ent].isMapPlaced)
+		{
+			continue;
+		}
+		
+		listWeapons.Push(ent);
+	}
+	
+	RemoveOldestWeapons(listWeapons, g_Cvar_MaxItems.IntValue);
+	delete listWeapons;
 }
 
 void ManageDroppedC4()
@@ -164,7 +224,7 @@ void ManageDroppedC4()
 	
 	while ((ent = FindEntityByClassname(ent, "weapon_c4")) != -1)
 	{
-		if (IsEntityOwned(ent) || !g_WeaponsInfo[ent].canBePicked || g_WeaponsInfo[ent].mapPlaced)
+		if (HasOwner(ent) || !g_WeaponsInfo[ent].canBePicked || g_WeaponsInfo[ent].isMapPlaced)
 		{
 			continue;
 		}
@@ -188,7 +248,7 @@ void ManageDroppedWeapons()
 	
 	while ((ent = FindEntityByClassname(ent, "weapon_*")) != -1)
 	{
-		if (IsEntityOwned(ent) || !g_WeaponsInfo[ent].canBePicked || g_WeaponsInfo[ent].mapPlaced || g_WeaponsInfo[ent].isBomb)
+		if (HasOwner(ent) || !g_WeaponsInfo[ent].canBePicked || g_WeaponsInfo[ent].isMapPlaced || g_WeaponsInfo[ent].isBomb)
 		{
 			continue;
 		}
@@ -229,7 +289,7 @@ void RemoveOldestWeapons(ArrayList listWeapons, int maxWeapons)
 	}
 }
 
-bool IsEntityOwned(int entity)
+bool HasOwner(int entity)
 {
 	return GetEntPropEnt(entity, Prop_Data, "m_hOwnerEntity") != -1;
 }
@@ -255,4 +315,9 @@ public int sortWeapons(int index1, int index2, Handle array, Handle hndl)
 	}
 	
 	return 0;
+}
+
+bool StrNumEqual(const char[] str1, const char[] str2, int num, bool caseSensitive)
+{
+	return strncmp(str1, str2, num, caseSensitive) == 0;
 }
