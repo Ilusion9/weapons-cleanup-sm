@@ -163,7 +163,7 @@ void ManageDroppedItems()
 	
 	while ((ent = FindEntityByClassname(ent, "item_*")) != -1)
 	{
-		if (HasOwner(ent) || !HasPrevOwner(ent))
+		if (HasOwner(ent))
 		{
 			continue;
 		}
