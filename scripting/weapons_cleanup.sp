@@ -18,6 +18,7 @@ enum struct WeaponInfo
 	bool canBePicked;
 	bool isBomb;
 	bool isItem;
+	bool mapPlaced;
 	float dropTime;
 }
 
@@ -37,6 +38,8 @@ public void OnPluginStart()
 	g_Cvar_MaxWeapons = CreateConVar("sm_weapon_max_before_cleanup", "24", "Maintain the specified dropped weapons in the world.", FCVAR_PROTECTED, true, 0.0);
 	g_Cvar_MaxItems = CreateConVar("sm_item_max_before_cleanup", "16", "Maintain the specified dropped items in the world.", FCVAR_PROTECTED, true, 0.0);
 	g_Cvar_MaxBombs = CreateConVar("sm_c4_max_before_cleanup", "1", "Maintain the specified dropped C4 bombs in the world.", FCVAR_PROTECTED, true, 0.0);
+	
+	HookEvent("round_start", Event_RoundStart);
 	AutoExecConfig(true, "weapons_cleanup");
 	
 	if (g_IsPluginLoadedLate)
@@ -55,6 +58,7 @@ public void OnEntityCreated(int entity, const char[] classname)
 {
 	if (StrNumEqual(classname, "weapon_", 7, true))
 	{
+		g_WeaponsInfo[entity].mapPlaced = false;
 		g_WeaponsInfo[entity].isItem = false;
 		g_WeaponsInfo[entity].isBomb = StrEqual(classname[7], "c4", true);
 		
@@ -63,6 +67,7 @@ public void OnEntityCreated(int entity, const char[] classname)
 	
 	else if (StrNumEqual(classname, "item_", 5, true))
 	{
+		g_WeaponsInfo[entity].mapPlaced = false;
 		g_WeaponsInfo[entity].isItem = true;
 		g_WeaponsInfo[entity].isBomb = false;
 		
@@ -90,6 +95,11 @@ public void Frame_OnWeaponSpawn_Post(any data)
 	
 	g_WeaponsInfo[weapon].dropTime = GetGameTime();
 	g_WeaponsInfo[weapon].canBePicked = g_WeaponsInfo[weapon].isItem ? true : CanBePickedUp(weapon);
+	
+	if (GetRoundTime() < 10.0)
+	{
+		return;
+	}
 	
 	if (HasOwner(weapon))
 	{
@@ -124,6 +134,7 @@ public void SDK_OnWeaponDrop_Post(int client, int weapon)
 		return;
 	}
 	
+	g_WeaponsInfo[weapon].mapPlaced = false;
 	g_WeaponsInfo[weapon].dropTime = GetGameTime();
 	RequestFrame(Frame_OnWeaponDrop_Post, EntIndexToEntRef(weapon));
 }
@@ -132,6 +143,11 @@ public void Frame_OnWeaponDrop_Post(any data)
 {
 	int weapon = EntRefToEntIndex(view_as<int>(data));
 	if (weapon == INVALID_ENT_REFERENCE)
+	{
+		return;
+	}
+	
+	if (GetRoundTime() < 10.0)
 	{
 		return;
 	}
@@ -149,6 +165,31 @@ public void Frame_OnWeaponDrop_Post(any data)
 	}
 
 	ManageDroppedWeapons();
+}
+
+public void Event_RoundStart(Event event, const char[] name, bool dontBroadcast)
+{
+	int ent = -1;
+	while ((ent = FindEntityByClassname(ent, "weapon_*")) != -1)
+	{
+		if (HasOwner(ent))
+		{
+			continue;
+		}
+		
+		g_WeaponsInfo[ent].mapPlaced = true;
+	}
+	
+	ent = -1;
+	while ((ent = FindEntityByClassname(ent, "item_*")) != -1)
+	{
+		if (HasOwner(ent))
+		{
+			continue;
+		}
+		
+		g_WeaponsInfo[ent].mapPlaced = true;
+	}
 }
 
 void ManageDroppedItems()
@@ -187,7 +228,7 @@ void ManageDroppedC4()
 	
 	while ((ent = FindEntityByClassname(ent, "weapon_c4")) != -1)
 	{
-		if (!g_WeaponsInfo[ent].canBePicked || HasOwner(ent) || !HasPrevOwner(ent))
+		if (!g_WeaponsInfo[ent].canBePicked || g_WeaponsInfo[ent].mapPlaced || HasOwner(ent))
 		{
 			continue;
 		}
@@ -211,7 +252,7 @@ void ManageDroppedWeapons()
 	
 	while ((ent = FindEntityByClassname(ent, "weapon_*")) != -1)
 	{
-		if (!g_WeaponsInfo[ent].canBePicked || g_WeaponsInfo[ent].isBomb || HasOwner(ent) || !HasPrevOwner(ent))
+		if (!g_WeaponsInfo[ent].canBePicked || g_WeaponsInfo[ent].isBomb || g_WeaponsInfo[ent].mapPlaced || HasOwner(ent))
 		{
 			continue;
 		}
@@ -257,9 +298,9 @@ bool HasOwner(int entity)
 	return GetEntPropEnt(entity, Prop_Data, "m_hOwnerEntity") != -1;
 }
 
-bool HasPrevOwner(int entity)
+int GetRoundTime()
 {
-	return GetEntPropEnt(entity, Prop_Send, "m_hPrevOwner") != -1;
+	return GameRules_GetProp("m_iRoundTime", 4, 0);
 }
 
 bool CanBePickedUp(int entity)
