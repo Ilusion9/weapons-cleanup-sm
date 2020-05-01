@@ -22,38 +22,74 @@ enum struct WeaponInfo
 	float dropTime;
 }
 
-bool g_IsPluginLoadedLate;
-float g_RoundStartTime;
-
 ConVar g_Cvar_MaxWeapons;
 ConVar g_Cvar_MaxBombs;
 ConVar g_Cvar_MaxItems;
 WeaponInfo g_WeaponsInfo[MAXENTITIES + 1];
 
-public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max)
-{
-	g_IsPluginLoadedLate = late;
-}
-
 public void OnPluginStart()
 {
 	g_Cvar_MaxWeapons = CreateConVar("sm_weapon_max_before_cleanup", "24", "Maintain the specified dropped weapons in the world.", FCVAR_PROTECTED, true, 0.0);
-	g_Cvar_MaxItems = CreateConVar("sm_item_max_before_cleanup", "16", "Maintain the specified dropped items in the world.", FCVAR_PROTECTED, true, 0.0);
-	g_Cvar_MaxBombs = CreateConVar("sm_c4_max_before_cleanup", "1", "Maintain the specified dropped C4 bombs in the world.", FCVAR_PROTECTED, true, 0.0);
+	g_Cvar_MaxWeapons.AddChangeHook(ConVarChange_MaxWeapons);
 	
+	g_Cvar_MaxItems = CreateConVar("sm_item_max_before_cleanup", "16", "Maintain the specified dropped items in the world.", FCVAR_PROTECTED, true, 0.0);
+	g_Cvar_MaxItems.AddChangeHook(ConVarChange_MaxItems);
+	
+	g_Cvar_MaxBombs = CreateConVar("sm_c4_max_before_cleanup", "1", "Maintain the specified dropped C4 bombs in the world.", FCVAR_PROTECTED, true, 0.0);
+	g_Cvar_MaxBombs.AddChangeHook(ConVarChange_MaxBombs);
+
 	HookEvent("round_start", Event_RoundStart);
 	AutoExecConfig(true, "weapons_cleanup");
 	
-	if (g_IsPluginLoadedLate)
+	for (int i = 1; i <= MaxClients; i++) if (IsClientInGame(i)) OnClientPutInServer(i);
+}
+
+public void ConVarChange_MaxWeapons(ConVar convar, const char[] oldValue, const char[] newValue)
+{
+	if (!g_Cvar_MaxWeapons.IntValue)
 	{
-		for (int i = 1; i <= MaxClients; i++)
-		{
-			if (IsClientInGame(i))
-			{
-				OnClientPutInServer(i);
-			}
-		}
+		return;
 	}
+	
+	int oldval = StringToInt(oldValue);
+	if (oldval < g_Cvar_MaxWeapons.IntValue)
+	{
+		return;
+	}
+	
+	ManageDroppedWeapons();
+}
+
+public void ConVarChange_MaxItems(ConVar convar, const char[] oldValue, const char[] newValue)
+{
+	if (!g_Cvar_MaxItems.IntValue)
+	{
+		return;
+	}
+	
+	int oldval = StringToInt(oldValue);
+	if (oldval < g_Cvar_MaxItems.IntValue)
+	{
+		return;
+	}
+	
+	ManageDroppedItems();
+}
+
+public void ConVarChange_MaxBombs(ConVar convar, const char[] oldValue, const char[] newValue)
+{
+	if (!g_Cvar_MaxBombs.IntValue)
+	{
+		return;
+	}
+	
+	int oldval = StringToInt(oldValue);
+	if (oldval < g_Cvar_MaxBombs.IntValue)
+	{
+		return;
+	}
+	
+	ManageDroppedC4();
 }
 
 public void OnEntityCreated(int entity, const char[] classname)
@@ -63,6 +99,7 @@ public void OnEntityCreated(int entity, const char[] classname)
 		g_WeaponsInfo[entity].mapPlaced = false;
 		g_WeaponsInfo[entity].isItem = false;
 		g_WeaponsInfo[entity].isBomb = StrEqual(classname[7], "c4", true);
+		g_WeaponsInfo[entity].canBePicked = false;
 		
 		SDKHook(entity, SDKHook_SpawnPost, SDK_OnWeaponSpawn_Post);
 	}
@@ -72,6 +109,7 @@ public void OnEntityCreated(int entity, const char[] classname)
 		g_WeaponsInfo[entity].mapPlaced = false;
 		g_WeaponsInfo[entity].isItem = true;
 		g_WeaponsInfo[entity].isBomb = false;
+		g_WeaponsInfo[entity].canBePicked = false;
 		
 		SDKHook(entity, SDKHook_SpawnPost, SDK_OnWeaponSpawn_Post);
 	}
@@ -99,11 +137,6 @@ public void Frame_OnWeaponSpawn_Post(any data)
 	g_WeaponsInfo[weapon].dropTime = gameTime;
 	g_WeaponsInfo[weapon].canBePicked = g_WeaponsInfo[weapon].isItem ? true : CanBePickedUp(weapon);
 	
-	if (gameTime - g_RoundStartTime < 5.0)
-	{
-		return;
-	}
-	
 	if (HasOwner(weapon))
 	{
 		// The number of dropped entities has not changed
@@ -113,21 +146,16 @@ public void Frame_OnWeaponSpawn_Post(any data)
 	if (g_WeaponsInfo[weapon].isItem)
 	{
 		ManageDroppedItems();
-		return;
 	}
 	
-	if (g_WeaponsInfo[weapon].isBomb)
+	else if (g_WeaponsInfo[weapon].isBomb)
 	{
 		ManageDroppedC4();
-		return;
 	}
-
-	ManageDroppedWeapons();
-}
-
-public void OnMapStart()
-{
-	g_RoundStartTime = GetGameTime();
+	else
+	{
+		ManageDroppedWeapons();
+	}
 }
 
 public void OnClientPutInServer(int client)
@@ -143,45 +171,26 @@ public void SDK_OnWeaponDrop_Post(int client, int weapon)
 	}
 	
 	float gameTime = GetGameTime();
-	
 	g_WeaponsInfo[weapon].mapPlaced = false;
 	g_WeaponsInfo[weapon].dropTime = gameTime;
-	
-	if (gameTime - g_RoundStartTime < 5.0)
-	{
-		return;
-	}
-	
-	RequestFrame(Frame_OnWeaponDrop_Post, EntIndexToEntRef(weapon));
-}
-
-public void Frame_OnWeaponDrop_Post(any data)
-{
-	int weapon = EntRefToEntIndex(view_as<int>(data));
-	if (weapon == INVALID_ENT_REFERENCE)
-	{
-		return;
-	}
 	
 	if (g_WeaponsInfo[weapon].isItem)
 	{
 		ManageDroppedItems();
-		return;
 	}
 	
-	if (g_WeaponsInfo[weapon].isBomb)
+	else if (g_WeaponsInfo[weapon].isBomb)
 	{
 		ManageDroppedC4();
-		return;
 	}
-
-	ManageDroppedWeapons();
+	else
+	{
+		ManageDroppedWeapons();
+	}
 }
 
 public void Event_RoundStart(Event event, const char[] name, bool dontBroadcast)
-{
-	g_RoundStartTime = GetGameTime();
-	
+{	
 	int ent = -1;
 	while ((ent = FindEntityByClassname(ent, "weapon_*")) != -1)
 	{
@@ -213,7 +222,8 @@ void ManageDroppedItems()
 	}
 	
 	int ent = -1;
-	ArrayList listWeapons = new ArrayList();
+	int numWeapons;
+	int listWeapons[256];
 	
 	while ((ent = FindEntityByClassname(ent, "item_*")) != -1)
 	{
@@ -222,11 +232,10 @@ void ManageDroppedItems()
 			continue;
 		}
 		
-		listWeapons.Push(ent);
+		listWeapons[numWeapons++] = ent;
 	}
 	
-	RemoveOldestWeapons(listWeapons, g_Cvar_MaxItems.IntValue);
-	delete listWeapons;
+	RemoveOldestWeapons(listWeapons, numWeapons, g_Cvar_MaxItems.IntValue);
 }
 
 void ManageDroppedC4()
@@ -237,7 +246,8 @@ void ManageDroppedC4()
 	}
 	
 	int ent = -1;
-	ArrayList listWeapons = new ArrayList();
+	int numWeapons;
+	int listWeapons[256];
 	
 	while ((ent = FindEntityByClassname(ent, "weapon_c4")) != -1)
 	{
@@ -246,11 +256,10 @@ void ManageDroppedC4()
 			continue;
 		}
 		
-		listWeapons.Push(ent);
+		listWeapons[numWeapons++] = ent;
 	}
 	
-	RemoveOldestWeapons(listWeapons, g_Cvar_MaxBombs.IntValue);
-	delete listWeapons;
+	RemoveOldestWeapons(listWeapons, numWeapons, g_Cvar_MaxBombs.IntValue);
 }
 
 void ManageDroppedWeapons()
@@ -261,7 +270,8 @@ void ManageDroppedWeapons()
 	}
 	
 	int ent = -1;
-	ArrayList listWeapons = new ArrayList();
+	int numWeapons;
+	int listWeapons[256];
 	
 	while ((ent = FindEntityByClassname(ent, "weapon_*")) != -1)
 	{
@@ -270,24 +280,23 @@ void ManageDroppedWeapons()
 			continue;
 		}
 		
-		listWeapons.Push(ent);
+		listWeapons[numWeapons++] = ent;
 	}
 	
-	RemoveOldestWeapons(listWeapons, g_Cvar_MaxWeapons.IntValue);
-	delete listWeapons;
+	RemoveOldestWeapons(listWeapons, numWeapons, g_Cvar_MaxWeapons.IntValue);
 }
 
-void RemoveOldestWeapons(ArrayList listWeapons, int maxWeapons)
+void RemoveOldestWeapons(int[] listWeapons, int numWeapons, int maxWeapons)
 {
-	int diff = listWeapons.Length - maxWeapons;
+	int diff = numWeapons - maxWeapons;
 	if (diff == 1)
 	{
 		int toCompare;
-		int toRemove = listWeapons.Get(0);
+		int toRemove = listWeapons[0];
 		
-		for (int i = 1; i < listWeapons.Length; i++)
+		for (int i = 1; i < numWeapons; i++)
 		{
-			toCompare = listWeapons.Get(i);
+			toCompare = listWeapons[i];
 			if (g_WeaponsInfo[toCompare].dropTime < g_WeaponsInfo[toRemove].dropTime)
 			{
 				toRemove = toCompare;
@@ -298,10 +307,10 @@ void RemoveOldestWeapons(ArrayList listWeapons, int maxWeapons)
 	}
 	else if (diff > 1)
 	{
-		listWeapons.SortCustom(sortWeapons);
-		for (int i = maxWeapons; i < listWeapons.Length; i++)
+		SortCustom1D(listWeapons, numWeapons, sortWeapons);
+		for (int i = maxWeapons; i < numWeapons; i++)
 		{
-			AcceptEntityInput(listWeapons.Get(i), "Kill");
+			AcceptEntityInput(listWeapons[i], "Kill");
 		}
 	}
 }
@@ -316,11 +325,8 @@ bool CanBePickedUp(int entity)
 	return GetEntProp(entity, Prop_Data, "m_bCanBePickedUp") != 0;
 }
 
-public int sortWeapons(int index1, int index2, Handle array, Handle hndl)
+public int sortWeapons(int weapon1, int weapon2, const int[] array, Handle hndl)
 {
-	int weapon1 = view_as<ArrayList>(array).Get(index1);
-	int weapon2 = view_as<ArrayList>(array).Get(index2);
-	
 	if (g_WeaponsInfo[weapon1].dropTime < g_WeaponsInfo[weapon2].dropTime)
 	{
 		return 1;
@@ -334,7 +340,7 @@ public int sortWeapons(int index1, int index2, Handle array, Handle hndl)
 	return 0;
 }
 
-bool StrNumEqual(const char[] str1, const char[] str2, int num, bool caseSensitive)
+bool StrNumEqual(const char[] str1, const char[] str2, int num, bool caseSensitive = true)
 {
 	return strncmp(str1, str2, num, caseSensitive) == 0;
 }
