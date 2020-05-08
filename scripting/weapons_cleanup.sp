@@ -147,7 +147,6 @@ public void Frame_OnWeaponSpawn_Post(any data)
 	{
 		ManageDroppedItems();
 	}
-	
 	else if (g_WeaponsInfo[weapon].isBomb)
 	{
 		ManageDroppedC4();
@@ -178,7 +177,6 @@ public void SDK_OnWeaponDrop_Post(int client, int weapon)
 	{
 		ManageDroppedItems();
 	}
-	
 	else if (g_WeaponsInfo[weapon].isBomb)
 	{
 		ManageDroppedC4();
@@ -222,8 +220,8 @@ void ManageDroppedItems()
 	}
 	
 	int ent = -1;
-	int numWeapons;
-	int listWeapons[256];
+	int numWeapons = 0;
+	int listWeapons[512];
 	
 	while ((ent = FindEntityByClassname(ent, "item_*")) != -1)
 	{
@@ -246,8 +244,8 @@ void ManageDroppedC4()
 	}
 	
 	int ent = -1;
-	int numWeapons;
-	int listWeapons[256];
+	int numWeapons = 0;
+	int listWeapons[512];
 	
 	while ((ent = FindEntityByClassname(ent, "weapon_c4")) != -1)
 	{
@@ -270,8 +268,8 @@ void ManageDroppedWeapons()
 	}
 	
 	int ent = -1;
-	int numWeapons;
-	int listWeapons[256];
+	int numWeapons = 0;
+	int listWeapons[512];
 	
 	while ((ent = FindEntityByClassname(ent, "weapon_*")) != -1)
 	{
